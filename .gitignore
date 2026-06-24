@@ -1,0 +1,26 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Runtime data and backups
+backups/*
+!backups/.gitkeep
+data/
+*.dump
+*.tar.gz
+
+# Frontend and tooling output
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+.cache/
+coverage/
+
+# Logs and editor files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,19 @@
+:80 {
+	encode zstd gzip
+
+	handle /health {
+		respond "ok" 200
+	}
+
+	handle /webhook/* {
+		reverse_proxy n8n:5678
+	}
+
+	handle /webhook-test/* {
+		reverse_proxy n8n:5678
+	}
+
+	handle {
+		respond "Local RAG platform infrastructure is running. The Vue frontend is added in Phase 6." 200
+	}
+}

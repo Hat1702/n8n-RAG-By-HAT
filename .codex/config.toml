@@ -1,0 +1,10 @@
+[mcp_servers.n8n-mcp]
+command = "cmd.exe"
+args = ["/c", "npx", "n8n-mcp"]
+env_vars = ["N8N_API_KEY"]
+
+[mcp_servers.n8n-mcp.env]
+MCP_MODE = "stdio"
+LOG_LEVEL = "error"
+DISABLE_CONSOLE_OUTPUT = "true"
+N8N_API_URL = "http://127.0.0.1:5678"

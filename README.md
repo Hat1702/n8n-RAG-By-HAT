@@ -1,0 +1,44 @@
+# Local n8n RAG Platform
+
+This repository is the portable source for a self-hosted RAG platform. n8n owns ingestion,
+retrieval, chat, and knowledge-base automation. Vue is a presentation client only.
+
+## Phase status
+
+- Phase 1: repository and Compose foundation — complete
+- Phase 2: runtime infrastructure and health validation
+- Phase 3: Codex and n8n integration
+- Phases 4-7: workflows, frontend, and production hardening
+
+Phase 1 Compose validation passed on all local/production and CPU/GPU combinations.
+
+## Local development
+
+1. Copy `.env.example` to `.env`.
+2. Replace every `REPLACE_WITH_...` value with a fresh random secret.
+3. Start Docker Desktop.
+4. Validate before starting:
+
+```powershell
+docker compose --env-file .env -f docker-compose.yml -f compose.dev.yml -f compose.gpu.yml config --quiet
+```
+
+The Phase 2 start command will be:
+
+```powershell
+docker compose --env-file .env -f docker-compose.yml -f compose.dev.yml -f compose.gpu.yml up -d
+docker compose --env-file .env -f docker-compose.yml -f compose.dev.yml --profile bootstrap run --rm ollama-init
+```
+
+Local ports bind to `127.0.0.1`; PostgreSQL and Redis are never published.
+
+## Production
+
+Production uses `compose.prod.yml`, public DNS, and Caddy-managed HTTPS. Generate fresh
+production secrets on the VPS. Do not copy the development `.env` or credentials database.
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f compose.prod.yml -f compose.gpu.yml config --quiet
+```
+
+See `docs/` for architecture and environment guidance.

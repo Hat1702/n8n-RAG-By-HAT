@@ -1,0 +1,265 @@
+name: ${COMPOSE_PROJECT_NAME:-local-rag}
+
+x-n8n-common: &n8n-common
+  image: n8nio/n8n:${N8N_VERSION}
+  restart: unless-stopped
+  environment: &n8n-common-environment
+    DB_TYPE: postgresdb
+    DB_POSTGRESDB_HOST: postgres
+    DB_POSTGRESDB_PORT: 5432
+    DB_POSTGRESDB_DATABASE: ${N8N_DB_NAME}
+    DB_POSTGRESDB_USER: ${N8N_DB_USER}
+    DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+    EXECUTIONS_MODE: queue
+    QUEUE_BULL_REDIS_HOST: redis
+    QUEUE_BULL_REDIS_PORT: 6379
+    QUEUE_BULL_REDIS_PASSWORD: ${REDIS_PASSWORD}
+    QUEUE_HEALTH_CHECK_ACTIVE: "true"
+    OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: "true"
+    N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+    N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+    N8N_RUNNERS_ENABLED: "true"
+    N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+    N8N_DIAGNOSTICS_ENABLED: "false"
+    N8N_PERSONALIZATION_ENABLED: "false"
+    N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+    EXECUTIONS_DATA_PRUNE: "true"
+    EXECUTIONS_DATA_MAX_AGE: ${N8N_EXECUTIONS_MAX_AGE_HOURS:-168}
+    EXECUTIONS_DATA_PRUNE_MAX_COUNT: ${N8N_EXECUTIONS_PRUNE_MAX_COUNT:-10000}
+    GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Etc/UTC}
+    TZ: ${GENERIC_TIMEZONE:-Etc/UTC}
+  volumes:
+    - n8n_data:/home/node/.n8n
+  networks:
+    - backend
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+      N8N_DB_NAME: ${N8N_DB_NAME}
+      N8N_DB_USER: ${N8N_DB_USER}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD}
+      RAG_DB_NAME: ${RAG_DB_NAME}
+      RAG_DB_USER: ${RAG_DB_USER}
+      RAG_DB_PASSWORD: ${RAG_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init/01-create-databases.sh:/docker-entrypoint-initdb.d/01-create-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-768m}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  redis:
+    image: redis:${REDIS_VERSION}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command:
+      - /bin/sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    mem_limit: ${REDIS_MEMORY_LIMIT:-256m}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  n8n:
+    <<: *n8n-common
+    environment:
+      <<: *n8n-common-environment
+      N8N_PORT: 5678
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    mem_limit: ${N8N_MAIN_MEMORY_LIMIT:-1g}
+
+  n8n-worker:
+    <<: *n8n-common
+    command: ["worker", "--concurrency=${N8N_WORKER_CONCURRENCY:-1}"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    mem_limit: ${N8N_WORKER_MEMORY_LIMIT:-2g}
+
+  minio:
+    image: minio/minio:${MINIO_VERSION}
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    mem_limit: ${MINIO_MEMORY_LIMIT:-768m}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  minio-init:
+    image: minio/mc:${MINIO_MC_VERSION}
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_DOCUMENTS_BUCKET: ${MINIO_DOCUMENTS_BUCKET:-rag-documents}
+    volumes:
+      - ./infra/minio/init/create-buckets.sh:/opt/bootstrap/create-buckets.sh:ro
+    entrypoint: ["/bin/sh", "/opt/bootstrap/create-buckets.sh"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - backend
+
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_VERSION}
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    mem_limit: ${QDRANT_MEMORY_LIMIT:-1536m}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION}
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    mem_limit: ${OLLAMA_MEMORY_LIMIT:-5g}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  ollama-init:
+    image: ollama/ollama:${OLLAMA_VERSION}
+    profiles: ["bootstrap"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:4b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - ollama pull "$$OLLAMA_CHAT_MODEL" && ollama pull "$$OLLAMA_EMBEDDING_MODEL"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - backend
+
+  docling:
+    image: quay.io/docling-project/docling-serve-cpu:${DOCLING_VERSION}
+    restart: unless-stopped
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "0"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/docs', timeout=3)" || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    mem_limit: ${DOCLING_MEMORY_LIMIT:-4g}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:${CADDY_VERSION}
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      N8N_DOMAIN: ${N8N_DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL}
+    volumes:
+      - ./infra/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    mem_limit: ${CADDY_MEMORY_LIMIT:-256m}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_data:
+  minio_data:
+  qdrant_data:
+  ollama_data:
+  caddy_data:
+  caddy_config:
