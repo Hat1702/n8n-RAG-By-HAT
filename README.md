@@ -7,10 +7,11 @@ retrieval, chat, and knowledge-base automation. Vue is a presentation client onl
 
 - Phase 1: repository and Compose foundation — complete
 - Phase 2: runtime infrastructure and health validation — complete
-- Phase 3: Codex and n8n integration
+- Phase 3: Codex and n8n integration — complete
 - Phases 4-7: workflows, frontend, and production hardening
 
 Phase 1 Compose validation passed on all local/production and CPU/GPU combinations.
+Phase 3 live MCP validation passed against the local n8n API.
 
 ## Local development
 
@@ -48,3 +49,5 @@ docker compose --env-file .env -f docker-compose.yml -f compose.prod.yml -f comp
 ```
 
 See `docs/` for architecture and environment guidance.
+
+Codex-to-n8n API setup is documented in `docs/codex-n8n-integration.md`.

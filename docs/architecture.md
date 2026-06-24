@@ -34,5 +34,10 @@ documentation. Backup and restore implementation is scheduled for Phase 7.
 - Qdrant requires an API key even on the private network.
 - Images are version-pinned through `.env`; unpinned `latest` tags are prohibited.
 - Ollama cloud features are disabled; generation and embeddings are local.
+- Codex reaches n8n only through the host-published loopback endpoint. The local MCP server
+  uses its `moderate` webhook security mode so localhost is allowed while private-network and
+  cloud metadata targets remain blocked.
+- Workflow JSON is imported as inactive by default. Activation requires node validation,
+  workflow validation, live connection inspection, and an execution test.
 - n8n 2.28 enables its internal JavaScript task runner by default, so the obsolete
   `N8N_RUNNERS_ENABLED` variable is intentionally omitted.
