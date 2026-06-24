@@ -33,3 +33,6 @@ documentation. Backup and restore implementation is scheduled for Phase 7.
 - MinIO objects remain private.
 - Qdrant requires an API key even on the private network.
 - Images are version-pinned through `.env`; unpinned `latest` tags are prohibited.
+- Ollama cloud features are disabled; generation and embeddings are local.
+- n8n 2.28 enables its internal JavaScript task runner by default, so the obsolete
+  `N8N_RUNNERS_ENABLED` variable is intentionally omitted.

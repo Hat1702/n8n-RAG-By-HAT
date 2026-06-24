@@ -1,0 +1,55 @@
+{
+  "id": "phase2-worker-smoke",
+  "name": "Phase 2 Worker Smoke Test",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "phase2-worker-smoke",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5072e1f2-859b-4b55-a0ea-4e6389892c87",
+      "name": "Phase 2 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "webhookId": "6212cdd3-f338-4cdf-a2f3-a4cd984efc20",
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":true,\"workerSmoke\":true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "ea246777-47cb-4cd8-9378-4f5af798247f",
+      "name": "Phase 2 Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [240, 0]
+    }
+  ],
+  "connections": {
+    "Phase 2 Webhook": {
+      "main": [
+        [
+          {
+            "node": "Phase 2 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1bfb974f-a9bf-4fac-a93b-c14bb6d550e2",
+  "tags": []
+}

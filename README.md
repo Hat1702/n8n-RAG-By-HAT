@@ -6,7 +6,7 @@ retrieval, chat, and knowledge-base automation. Vue is a presentation client onl
 ## Phase status
 
 - Phase 1: repository and Compose foundation — complete
-- Phase 2: runtime infrastructure and health validation
+- Phase 2: runtime infrastructure and health validation — complete
 - Phase 3: Codex and n8n integration
 - Phases 4-7: workflows, frontend, and production hardening
 
@@ -28,6 +28,12 @@ The Phase 2 start command will be:
 ```powershell
 docker compose --env-file .env -f docker-compose.yml -f compose.dev.yml -f compose.gpu.yml up -d
 docker compose --env-file .env -f docker-compose.yml -f compose.dev.yml --profile bootstrap run --rm ollama-init
+```
+
+The repeatable local command is now:
+
+```powershell
+./scripts/bootstrap.ps1
 ```
 
 Local ports bind to `127.0.0.1`; PostgreSQL and Redis are never published.
