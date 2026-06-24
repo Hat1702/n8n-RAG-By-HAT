@@ -8,7 +8,9 @@ retrieval, chat, and knowledge-base automation. Vue is a presentation client onl
 - Phase 1: repository and Compose foundation — complete
 - Phase 2: runtime infrastructure and health validation — complete
 - Phase 3: Codex and n8n integration — complete
-- Phases 4-7: workflows, frontend, and production hardening
+- Phase 4: single-canvas ingestion, retrieval, reset, and reprocess workflow — complete
+- Phase 6: Vue knowledge workspace — complete
+- Phases 5 and 7: extended observability and production operations — baseline implemented
 
 Phase 1 Compose validation passed on all local/production and CPU/GPU combinations.
 Phase 3 live MCP validation passed against the local n8n API.
@@ -38,6 +40,9 @@ The repeatable local command is now:
 ```
 
 Local ports bind to `127.0.0.1`; PostgreSQL and Redis are never published.
+
+Open the application at `http://localhost:8080`. The n8n editor remains available at
+`http://localhost:5678` for workflow maintenance.
 
 ## Production
 

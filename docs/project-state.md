@@ -1,10 +1,9 @@
 # Project State
 
 Current focus:
-- Finish the Phase 4 single-canvas local RAG workflow.
+- The local platform is usable end to end.
 - Keep the system local, portable, and n8n-first.
-- Prefer batching workflow edits first, then validate only when needed.
-- Defer non-essential improvements until the user-facing system works end to end.
+- Prepare production rollout and operational hardening only when required.
 
 What is already in place:
 - Local Docker stack for n8n, Postgres, Redis, MinIO, Qdrant, Ollama, Docling, and Caddy.
@@ -13,12 +12,14 @@ What is already in place:
 - The exported workflow is now checked in under `n8n/workflows/phase4-single-canvas-local-rag.json`.
 - Folder polling was used instead of a local file trigger.
 - Ingestion smoke test completed successfully.
+- Grounded retrieval returns answers with source metadata.
+- Vue knowledge workspace is served at `http://localhost:8080`.
+- Query, multipart ingestion, reset, and reprocess are available through the UI.
 
 What is still left:
-- Fix and verify the grounded retrieval/chat path.
-- Confirm the reset/admin branch works end to end.
-- Clean up temporary smoke-test artifacts if needed.
-- Run a final end-to-end validation pass.
+- Production DNS, TLS, secrets, backups, and restore drills require the target VPS.
+- BM25 or reranking remains optional and should be added only when retrieval evidence
+  justifies the complexity.
 
 Workflow preference:
 - Use one canvas for the main orchestration.

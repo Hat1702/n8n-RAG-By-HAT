@@ -14,7 +14,7 @@
 	}
 
 	handle {
-		respond "RAG platform frontend is not deployed yet." 503
+		reverse_proxy frontend:80
 	}
 }
 

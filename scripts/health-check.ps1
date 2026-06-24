@@ -14,7 +14,7 @@ Get-Content '.env' | Where-Object { $_ -match '^[A-Z0-9_]+=' } | ForEach-Object 
 }
 
 $compose = @('--env-file', '.env', '-f', 'docker-compose.yml', '-f', 'compose.dev.yml')
-$services = @('postgres', 'redis', 'minio', 'qdrant', 'ollama', 'docling', 'n8n', 'n8n-worker', 'caddy')
+$services = @('postgres', 'redis', 'minio', 'qdrant', 'ollama', 'docling', 'n8n', 'n8n-worker', 'frontend', 'caddy')
 
 foreach ($service in $services) {
     $containerId = docker compose @compose ps -q $service
@@ -32,4 +32,3 @@ $null = Invoke-RestMethod -Uri "http://127.0.0.1:$($environment.OLLAMA_PORT)/api
 $null = Invoke-RestMethod -Uri "http://127.0.0.1:$($environment.QDRANT_HTTP_PORT)/collections" -Headers @{ 'api-key' = $environment.QDRANT_API_KEY } -TimeoutSec 10
 
 Write-Host 'All Phase 2 service health checks passed.'
-

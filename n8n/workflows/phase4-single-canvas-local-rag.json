@@ -1,1 +1,2470 @@
-[{"updatedAt":"2026-06-24T18:21:02.787Z","createdAt":"2026-06-24T17:52:45.948Z","id":"M1oNSxViwXJpX7w2","name":"Phase 4: Single-Canvas Local RAG","description":null,"active":true,"isArchived":false,"nodes":[{"parameters":{"content":"## Single local RAG entrypoint\nPOST `/webhook/rag`\n\nActions:\n- `ingest`: multipart file field `file` (legacy `data` also accepted)\n- `query`: `query`, optional `kbId`, `topK`\n- `reset`: `confirm: RESET` plus `documentId` or `kbId`\n- `reprocess`: `confirm: RESET` plus `documentId`\n\nDefault KB: `00000000-0000-4000-8000-000000000001`\nMax upload: 25 MiB.","height":500,"width":1450,"color":5},"id":"10000000-0000-4000-8000-000000000001","name":"00 - API Contract","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[-304,-304]},{"parameters":{"content":"## Folder monitoring\nEvery five minutes the schedule polls `/files/inbox/*`.\nThe same hash, deduplication, MinIO, Docling, embedding, and indexing path is used.\nBoth n8n main and worker containers mount the same host folder.","height":420,"width":1450,"color":4},"id":"10000000-0000-4000-8000-000000000002","name":"10 - Folder Intake","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[-304,-896]},{"parameters":{"content":"## Ingestion lifecycle\nValidate -> SHA-256 -> register/idempotency -> MinIO -> Docling -> semantic chunks -> Ollama embeddings -> Qdrant -> PostgreSQL indexed state.\n\nThe formerly separate ingestion workflows are inlined here so this workflow exports as one portable file.","height":900,"width":3600,"color":3},"id":"10000000-0000-4000-8000-000000000003","name":"20 - Ingestion","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[1200,-304]},{"parameters":{"content":"## Grounded retrieval\nNormalize query -> same Ollama embedding model -> Qdrant semantic search filtered by KB -> context/source assembly -> Ollama chat -> answer + sources.\n\nVector retrieval is implemented now. BM25 and a separate reranker are intentionally deferred because the current local stack has neither a lexical index nor reranker service.","height":700,"width":3600,"color":6},"id":"10000000-0000-4000-8000-000000000004","name":"30 - Retrieval","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[-304,800]},{"parameters":{"content":"## Safe reset and reprocess\nReset deletes matching Qdrant points and returns PostgreSQL documents to `pending`.\nMinIO source/artifacts are preserved.\n`reprocess` performs the reset and then enters the ingestion pipeline using the stored source.","height":650,"width":3200,"color":2},"id":"10000000-0000-4000-8000-000000000005","name":"40 - Admin Reset","type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[-304,1600]},{"parameters":{"httpMethod":"POST","path":"rag","responseMode":"responseNode","options":{}},"id":"10000000-0000-4000-8000-000000000006","name":"RAG API","type":"n8n-nodes-base.webhook","typeVersion":2.1,"position":[0,0],"webhookId":"19a49d84-397f-4e27-a40c-667efe721d9b","onError":"continueRegularOutput"},{"parameters":{"jsCode":"const item = $input.first();\nconst body = item.json?.body || {};\nconst binary = item.binary || {};\nconst defaultKbId = '00000000-0000-4000-8000-000000000001';\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst requested = String(body.action || (binary.data || binary.file ? 'ingest' : (body.query || body.message ? 'query' : ''))).trim().toLowerCase();\nconst action = requested === 'reprocess' ? 'reset' : requested;\nconst kbId = String(body.kbId || defaultKbId).trim();\nconst query = String(body.query || body.message || '').trim();\nconst documentId = String(body.documentId || '').trim();\nconst confirm = String(body.confirm || '').trim();\nconst force = body.force === true || String(body.force || '').toLowerCase() === 'true';\nconst reprocess = requested === 'reprocess';\nconst topK = Math.max(1, Math.min(12, Number(body.topK || 6) || 6));\nlet error = '';\nlet statusCode = 400;\nconst binaryInputName = binary.data ? 'data' : 'file';\nlet file = binary.data || binary.file;\nlet sourceSize = Number(file?.fileSize || 0);\nif (action === 'ingest') {\n  if (!file) error = 'action=ingest requires a multipart file in binary field \"data\"';\n  if (!error && !uuid.test(kbId)) error = 'kbId must be a UUID';\n  if (!error && !sourceSize) {\n    const buffer = await this.helpers.getBinaryDataBuffer(0, binaryInputName);\n    sourceSize = buffer.length;\n  }\n  if (!error && sourceSize <= 0) error = 'Uploaded file is empty';\n  if (!error && sourceSize > 26214400) { error = 'Uploaded file exceeds 25 MiB'; statusCode = 413; }\n} else if (action === 'query') {\n  if (!query) error = 'action=query requires query or message';\n  if (!error && !uuid.test(kbId)) error = 'kbId must be a UUID';\n} else if (action === 'reset') {\n  if (confirm !== 'RESET') error = 'reset and reprocess require confirm=RESET';\n  if (!error && documentId && !uuid.test(documentId)) error = 'documentId must be a UUID';\n  if (!error && !documentId && !uuid.test(kbId)) error = 'kbId must be a UUID';\n  if (!error && reprocess && !documentId) error = 'reprocess requires documentId';\n} else {\n  error = 'action must be ingest, query, reset, or reprocess';\n}\nconst filename = String(file?.fileName || body.filename || 'upload.bin').replace(/[\\\\/]/g, '_');\nconst extension = (filename.includes('.') ? filename.split('.').pop() : 'bin').toLowerCase();\nconst mimeType = String(file?.mimeType || body.mimeType || 'application/octet-stream');\nreturn [{\n  json: { action: error ? 'invalid' : action, requestedAction: requested, requestSource: 'webhook', kbId, query, documentId, confirm, force, reprocess, topK, filename, extension, mimeType, sourceSize, error, statusCode },\n  binary: file ? {...binary, data: file} : binary\n}];"},"id":"10000000-0000-4000-8000-000000000007","name":"Normalize and Validate Request","type":"n8n-nodes-base.code","typeVersion":2,"position":[272,0]},{"parameters":{"mode":"expression","output":"={{ ({ingest: 0, query: 1, reset: 2})[$json.action] ?? 3 }}"},"id":"10000000-0000-4000-8000-000000000008","name":"Route Action","type":"n8n-nodes-base.switch","typeVersion":3.4,"position":[544,0]},{"parameters":{"respondWith":"json","responseBody":"={{ { ok: false, error: $json.error, action: $json.requestedAction || null } }}","options":{"responseCode":"={{ $json.statusCode || 400 }}","enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000009","name":"Respond Invalid Request","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[832,368]},{"parameters":{"rule":{"interval":[{"field":"minutes"}]}},"id":"10000000-0000-4000-8000-000000000010","name":"Watch Local Inbox","type":"n8n-nodes-base.scheduleTrigger","typeVersion":1.3,"position":[0,-656]},{"parameters":{"fileSelector":"/files/inbox/*","options":{"dataPropertyName":"data"}},"id":"10000000-0000-4000-8000-000000000011","name":"Read Watched File","type":"n8n-nodes-base.readWriteFile","typeVersion":1.1,"position":[272,-656],"onError":"continueErrorOutput"},{"parameters":{"jsCode":"const item = $input.first();\nconst binary = item.binary || {};\nif (!binary.data) throw new Error('Watched path did not produce binary data');\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nif (buffer.length > 26214400) throw new Error('Watched file exceeds 25 MiB');\nconst rawPath = String(binary.data.fileName || 'watched.bin');\nconst filename = String(binary.data.fileName || rawPath.split(/[\\\\/]/).pop() || 'watched.bin').replace(/[\\\\/]/g, '_');\nconst extension = (filename.includes('.') ? filename.split('.').pop() : 'bin').toLowerCase();\nreturn [{\n  json: {\n    action: 'ingest',\n    requestedAction: 'ingest',\n    requestSource: 'folder',\n    kbId: '00000000-0000-4000-8000-000000000001',\n    force: true,\n    reprocess: false,\n    filename,\n    extension,\n    mimeType: binary.data.mimeType || 'application/octet-stream',\n    sourceSize: buffer.length\n  },\n  binary\n}];"},"id":"10000000-0000-4000-8000-000000000012","name":"Prepare Watched File","type":"n8n-nodes-base.code","typeVersion":2,"position":[528,-656]},{"parameters":{"binaryData":true,"dataPropertyName":"sourceSha256"},"id":"10000000-0000-4000-8000-000000000013","name":"Hash Source File","type":"n8n-nodes-base.crypto","typeVersion":2,"position":[1072,-80]},{"parameters":{"operation":"executeQuery","query":"WITH candidate AS (\n  SELECT gen_random_uuid() AS id\n), upserted AS (\n  INSERT INTO rag_documents (\n    id, kb_id, source_sha256, filename, extension, mime_type, source_size, source_key, status\n  )\n  SELECT candidate.id,\n         $1::uuid,\n         $2::char(64),\n         $3::text,\n         $4::text,\n         $5::text,\n         $6::bigint,\n         format('documents/%s/%s/source/original', $1::text, candidate.id::text),\n         'pending'\n  FROM candidate\n  ON CONFLICT (kb_id, source_sha256) DO UPDATE\n  SET filename = EXCLUDED.filename,\n      extension = EXCLUDED.extension,\n      mime_type = EXCLUDED.mime_type,\n      source_size = EXCLUDED.source_size,\n      status = CASE WHEN $7::boolean THEN 'pending' ELSE rag_documents.status END,\n      error_stage = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_stage END,\n      error_code = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_code END,\n      error_message = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_message END,\n      error_details = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_details END,\n      updated_at = now()\n  RETURNING *\n), event AS (\n  INSERT INTO rag_document_events(document_id, status, stage, details, execution_id)\n  SELECT id, status, 'intake',\n         jsonb_build_object('filename', filename, 'sourceSize', source_size, 'sourceSha256', source_sha256),\n         $8::text\n  FROM upserted\n)\nSELECT id::text AS \"documentId\",\n       kb_id::text AS \"kbId\",\n       source_key AS \"sourceKey\",\n       source_sha256::text AS \"sourceSha256\",\n       filename,\n       extension,\n       mime_type AS \"mimeType\",\n       source_size AS \"sourceSize\",\n       status,\n       $9::text AS \"requestSource\"\nFROM upserted;","options":{"queryBatching":"single","queryReplacement":"={{ [$json.kbId, $json.sourceSha256, $json.filename, $json.extension, $json.mimeType, $json.sourceSize, $json.force, $execution.id, $json.requestSource] }}"}},"id":"10000000-0000-4000-8000-000000000014","name":"Register Document","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[1328,-80],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"mode":"combine","combineBy":"combineByPosition","options":{"clashHandling":{"values":{"resolveClash":"addSuffix"}}}},"id":"10000000-0000-4000-8000-000000000015","name":"Merge Upload Context","type":"n8n-nodes-base.merge","typeVersion":3.2,"position":[1584,-80]},{"parameters":{"operation":"upload","bucketName":"rag-documents","fileName":"={{ $('Register Document').first().json.sourceKey }}","additionalFields":{}},"id":"10000000-0000-4000-8000-000000000016","name":"Upload Source to MinIO","type":"n8n-nodes-base.s3","typeVersion":1,"position":[1840,-80],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"alwaysOutputData":true,"credentials":{"s3":{"id":"bbKhvZGX8F1ThzH4","name":"Local RAG MinIO"}}},{"parameters":{"assignments":{"assignments":[{"id":"10000000-0000-4000-8000-000000000017","name":"documentId","type":"string","value":"={{ $('Register Document').first().json.documentId }}"},{"id":"10000000-0000-4000-8000-000000000018","name":"requestSource","type":"string","value":"={{ $('Register Document').first().json.requestSource }}"}]},"options":{}},"id":"10000000-0000-4000-8000-000000000019","name":"Pass Registered Document","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[2080,-80]},{"parameters":{"operation":"executeQuery","query":"WITH updated AS (\n  UPDATE rag_documents\n  SET status = 'processing', processing_attempt = processing_attempt + 1, error_code = NULL, error_message = NULL, error_details = NULL, updated_at = now()\n  WHERE id = $1::uuid AND status IN ('pending', 'failed')\n  RETURNING id\n)\nINSERT INTO rag_document_events(document_id, status, stage, details)\nSELECT id, 'processing', 'orchestrator', '{}'::jsonb FROM updated;\nWITH selected AS (\n SELECT id, kb_id, source_key, source_sha256, filename, mime_type, status FROM rag_documents WHERE id = $1::uuid\n)\nSELECT id::text AS \"documentId\", kb_id::text AS \"kbId\", source_key AS \"sourceKey\", source_sha256 AS \"sourceSha256\", filename AS filename, mime_type AS \"mimeType\", status, (status = 'processing') AS \"shouldProcess\", $2::text AS \"requestSource\" FROM selected;","options":{"queryReplacement":"={{ [$json.documentId, $json.requestSource || 'internal'] }}"}},"id":"0e04e97b-a907-4d00-a5d3-39be0186a323","name":"Claim Document","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[2320,-80],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict","version":2},"conditions":[{"id":"b452f25a-90ac-4793-a7fd-9f0bcc8069cd","leftValue":"={{ $json.shouldProcess }}","rightValue":true,"operator":{"type":"boolean","operation":"true","singleValue":true}}],"combinator":"and"},"options":{}},"id":"0c3dab22-8c74-45c3-9ca7-fe519b8f8d3a","name":"Should Process","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[2560,-80]},{"parameters":{"assignments":{"assignments":[{"id":"c246af96-9c31-435b-933e-38f8853a7c80","name":"documentId","type":"string","value":"={{ $json.documentId }}"},{"id":"eb4f64bd-e5c4-4405-a650-8c3ec41b9ced","name":"status","type":"string","value":"={{ $json.status }}"},{"id":"ddbafe33-7128-428c-8728-466804fbd562","name":"skipped","type":"boolean","value":true},{"id":"10000000-0000-4000-8000-000000000020","name":"requestSource","type":"string","value":"={{ $json.requestSource }}"}]},"options":{}},"id":"fe106d8e-9cc5-49a2-8cdf-db755190709c","name":"Return Existing State","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[2800,272]},{"parameters":{"operation":"executeQuery","query":"UPDATE rag_documents SET status = 'extracting', updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'extracting', 'docling', jsonb_build_object('sourceKey', $2::text));\nSELECT $1::text AS \"documentId\";","options":{"queryReplacement":"={{ [$json.documentId, $json.sourceKey] }}"}},"id":"8d88308a-da28-4772-b032-8cdaae442436","name":"Mark Extracting","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[2800,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"bucketName":"rag-documents","fileKey":"={{ $('Claim Document').first().json.sourceKey }}"},"id":"f79f6ee7-280b-4b71-be3f-855a89ccf3e1","name":"Download Source","type":"n8n-nodes-base.s3","typeVersion":1,"position":[3040,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"credentials":{"s3":{"id":"bbKhvZGX8F1ThzH4","name":"Local RAG MinIO"}},"onError":"continueErrorOutput"},{"parameters":{"method":"POST","url":"http://docling:5001/v1/convert/file","sendBody":true,"contentType":"multipart-form-data","bodyParameters":{"parameters":[{"parameterType":"formBinaryData","name":"files","inputDataFieldName":"data"},{"name":"target_type","value":"zip"},{"name":"to_formats","value":"md"},{"name":"to_formats","value":"json"},{"name":"image_export_mode","value":"referenced"},{"name":"include_images","value":"true"}]},"options":{"response":{"response":{"responseFormat":"file"}},"timeout":600000}},"id":"4adbad37-735b-4c79-8f35-5b22c894ca9c","name":"Docling Convert","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[3280,-160],"retryOnFail":true,"maxTries":2,"waitBetweenTries":3000,"onError":"continueErrorOutput"},{"parameters":{},"id":"2fb6a513-59ed-4d86-a92c-d1330c3330ba","name":"Decompress Docling ZIP","type":"n8n-nodes-base.compression","typeVersion":1.1,"position":[3520,-160],"onError":"continueErrorOutput"},{"parameters":{"jsCode":"\nconst contract = $('Claim Document').first().json;\nconst input = $input.first();\nconst binary = input.binary || {};\nconst entries = [];\nfor (const key of Object.keys(binary)) {\n  const meta = binary[key];\n  const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n  entries.push({ key, meta, buffer });\n}\nconst jsonEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.json'));\nconst mdEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.md'));\nif (!jsonEntry || !mdEntry) throw new Error('Docling ZIP must contain both JSON and Markdown outputs');\n\nconst doc = JSON.parse(jsonEntry.buffer.toString('utf8'));\nlet markdown = mdEntry.buffer.toString('utf8');\nconst imageEntries = entries.filter(e => /\\.(png|jpe?g|webp|gif|tiff?|bmp)$/i.test(e.meta.fileName || ''));\nmarkdown = markdown.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, (_, alt, ref) => {\n  const base = String(ref).replace(/\\\\/g, '/').split('/').pop();\n  return '![' + alt + '](images/' + base + ')';\n});\n\nconst byRef = new Map();\nfor (const collection of ['groups','texts','tables','pictures','key_value_items','form_items']) {\n  for (const item of (doc[collection] || [])) {\n    if (item && item.self_ref) byRef.set(item.self_ref, item);\n  }\n}\nconst pageOf = item => {\n  const p = item && Array.isArray(item.prov) ? item.prov[0] : null;\n  return Number.isInteger(p?.page_no) ? p.page_no : null;\n};\nconst esc = value => String(value ?? '').replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ');\nconst tableMarkdown = table => {\n  const grid = table?.data?.grid;\n  if (!Array.isArray(grid) || grid.length === 0) return '[Table]';\n  const rows = grid.map(row => row.map(cell => esc(cell?.text ?? cell)).join(' | '));\n  const width = Math.max(...grid.map(row => row.length), 1);\n  return '| ' + rows[0] + ' |\\n| ' + Array(width).fill('---').join(' | ') + ' |\\n' +\n    rows.slice(1).map(r => '| ' + r + ' |').join('\\n');\n};\nconst blocks = [];\nlet headings = [];\nconst pushBlock = (item, contentType, text) => {\n  const clean = String(text || '').trim();\n  if (!clean) return;\n  const page = pageOf(item);\n  blocks.push({ text: clean, heading_path: [...headings], page_start: page, page_end: page, content_type: contentType });\n};\nconst visit = refOrItem => {\n  const item = typeof refOrItem === 'string' ? byRef.get(refOrItem) : byRef.get(refOrItem?.$ref) || refOrItem;\n  if (!item) return;\n  const label = item.label || '';\n  if (label === 'title' || label === 'section_header') {\n    const level = Math.max(1, Number(item.level || (label === 'title' ? 1 : headings.length + 1)));\n    headings = headings.slice(0, level - 1);\n    headings[level - 1] = String(item.text || '').trim();\n    pushBlock(item, 'heading', item.text);\n    return;\n  }\n  if (item.data?.grid) pushBlock(item, 'table', tableMarkdown(item));\n  else if (label === 'picture' || item.self_ref?.startsWith('#/pictures/')) {\n    const caption = item.caption_text || item.text || (item.captions || []).map(c => c.text || '').filter(Boolean).join(' ');\n    pushBlock(item, 'image', caption ? '[Image] ' + caption : '[Image]');\n  } else if (item.text) pushBlock(item, label || 'text', item.text);\n  for (const child of (item.children || [])) visit(child);\n};\nfor (const child of (doc.body?.children || [])) visit(child);\n\nif (blocks.length === 0 && markdown.trim()) {\n  blocks.push({text: markdown.trim(), heading_path: [], page_start: null, page_end: null, content_type: 'markdown'});\n}\nconst MAX = 1200;\nconst OVERLAP = 150;\nconst chunks = [];\nconst stableUuid = seed => {\n  const words = [2166136261, 2246822519, 3266489917, 668265263];\n  for (let w = 0; w < words.length; w++) {\n    let h = words[w] >>> 0;\n    for (let i = 0; i < seed.length; i++) {\n      h ^= seed.charCodeAt(i) + w * 31;\n      h = Math.imul(h, 16777619 + w * 2) >>> 0;\n    }\n    words[w] = h;\n  }\n  let hex = words.map(v => v.toString(16).padStart(8, '0')).join('');\n  hex = hex.slice(0, 12) + '5' + hex.slice(13, 16) + ((parseInt(hex[16],16)&3)|8).toString(16) + hex.slice(17);\n  return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20,32);\n};\nlet current = null;\nconst emit = () => {\n  if (!current || !current.text.trim()) return;\n  const index = chunks.length;\n  chunks.push({\n    id: stableUuid(contract.documentId + ':' + index),\n    chunk_id: contract.documentId + ':' + String(index).padStart(6, '0'),\n    document_id: contract.documentId,\n    kb_id: contract.kbId,\n    chunk_index: index,\n    text: current.text.trim(),\n    heading_path: current.heading_path,\n    page_start: current.page_start,\n    page_end: current.page_end,\n    content_type: current.content_type,\n    source_key: contract.sourceKey,\n    source_sha256: contract.sourceSha256,\n    filename: contract.filename\n  });\n};\nfor (const block of blocks) {\n  const sameSection = current && JSON.stringify(current.heading_path) === JSON.stringify(block.heading_path) && current.content_type === block.content_type;\n  if (!sameSection || (current.text.length + block.text.length + 2 > MAX)) {\n    if (current) emit();\n    const carry = sameSection && current ? current.text.slice(-OVERLAP) : '';\n    current = {...block, text: carry ? carry + '\\n\\n' + block.text : block.text};\n  } else {\n    current.text += '\\n\\n' + block.text;\n    if (block.page_start != null) {\n      current.page_start = current.page_start == null ? block.page_start : Math.min(current.page_start, block.page_start);\n      current.page_end = current.page_end == null ? block.page_end : Math.max(current.page_end, block.page_end);\n    }\n  }\n}\nemit();\nif (chunks.length === 0) throw new Error('Docling produced no indexable content');\n\nconst prefix = 'documents/' + contract.kbId + '/' + contract.documentId + '/';\nconst manifest = {\n  schemaVersion: 1,\n  documentId: contract.documentId,\n  kbId: contract.kbId,\n  source: { key: contract.sourceKey, filename: contract.filename, sha256: contract.sourceSha256, mimeType: contract.mimeType },\n  artifacts: {\n    json: prefix + 'extracted/document.json',\n    markdown: prefix + 'extracted/document.md',\n    manifest: prefix + 'extracted/manifest.json',\n    images: imageEntries.map(e => prefix + 'extracted/images/' + (e.meta.fileName || e.key).replace(/^.*[\\\\/]/,'')),\n    chunks: prefix + 'chunks/chunks.json'\n  },\n  chunkCount: chunks.length,\n  createdAt: new Date().toISOString()\n};\nconst makeItem = async (objectKey, kind, buffer, fileName, mimeType, extra={}) => ({\n  json: { documentId: contract.documentId, kbId: contract.kbId, objectKey, kind, ...extra },\n  binary: { data: await this.helpers.prepareBinaryData(buffer, fileName, mimeType) }\n});\nconst output = [];\noutput.push(await makeItem(prefix+'extracted/document.json','docling_json',Buffer.from(JSON.stringify(doc,null,2)),'document.json','application/json'));\noutput.push(await makeItem(prefix+'extracted/document.md','markdown',Buffer.from(markdown),'document.md','text/markdown'));\nfor (const image of imageEntries) {\n  const name = (image.meta.fileName || image.key).replace(/^.*[\\\\/]/,'');\n  output.push(await makeItem(prefix+'extracted/images/'+name,'image',image.buffer,name,image.meta.mimeType || 'application/octet-stream'));\n}\noutput.push(await makeItem(prefix+'extracted/manifest.json','manifest',Buffer.from(JSON.stringify(manifest,null,2)),'manifest.json','application/json'));\noutput.push(await makeItem(prefix+'chunks/chunks.json','chunks',Buffer.from(JSON.stringify(chunks,null,2)),'chunks.json','application/json',{chunks,chunkCount:chunks.length,manifest}));\nreturn output;\n"},"id":"90f11599-4109-48ec-b68a-1ddaca8a0b3b","name":"Build Artifacts and Chunks","type":"n8n-nodes-base.code","typeVersion":2,"position":[3760,-160],"onError":"continueErrorOutput"},{"parameters":{"operation":"upload","bucketName":"rag-documents","fileName":"={{ $json.objectKey }}","additionalFields":{}},"id":"9177859e-b3a6-4220-9730-ca3e2c0b1713","name":"Upload Artifacts","type":"n8n-nodes-base.s3","typeVersion":1,"position":[4000,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"credentials":{"s3":{"id":"bbKhvZGX8F1ThzH4","name":"Local RAG MinIO"}}},{"parameters":{"jsCode":"const uploaded = $input.all();\n\nconst source = $('Build Artifacts and Chunks').all().find(i => i.json.kind === 'chunks');\nif (!source) throw new Error('chunks.json artifact was not produced');\nreturn [{json:{\n  documentId: source.json.documentId,\n  kbId: source.json.kbId,\n  chunks: source.json.chunks,\n  chunkCount: source.json.chunkCount,\n  manifest: source.json.manifest\n}}];\n"},"id":"abb09658-086f-4301-a0c8-71b687ef2187","name":"Collect Conversion Result","type":"n8n-nodes-base.code","typeVersion":2,"position":[4240,-160],"onError":"continueErrorOutput"},{"parameters":{"operation":"executeQuery","query":"UPDATE rag_documents SET status = 'chunking', chunk_count = $2::integer, artifact_manifest = $3::jsonb, updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'chunking', 'chunking', jsonb_build_object('chunkCount', $2::integer));\nSELECT $1::text AS \"documentId\", $2::integer AS \"chunkCount\";","options":{"queryReplacement":"={{ [$json.documentId, $json.chunkCount, JSON.stringify($json.manifest)] }}"}},"id":"4d0d3203-b035-45e0-9fb1-606d491ee6cc","name":"Mark Chunked","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[4480,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"assignments":{"assignments":[{"id":"8d6013b7-68c3-4f33-bac5-60f611de983f","name":"documentId","type":"string","value":"={{ $('Collect Conversion Result').first().json.documentId }}"},{"id":"128de095-d0d7-4079-9235-e928dfe16f2d","name":"kbId","type":"string","value":"={{ $('Collect Conversion Result').first().json.kbId }}"},{"id":"5a0bc747-3d12-4eca-b9e1-64253c78ab3c","name":"chunks","type":"array","value":"={{ $('Collect Conversion Result').first().json.chunks }}"},{"id":"dbfc9155-366a-4fb8-9293-a6f738e478cb","name":"chunkCount","type":"number","value":"={{ $('Collect Conversion Result').first().json.chunkCount }}"},{"id":"82f5b7ee-1977-43ef-b74c-f7bef7e2e725","name":"manifest","type":"object","value":"={{ $('Collect Conversion Result').first().json.manifest }}"}]},"options":{}},"id":"2fed1f06-2cf6-4720-8074-a0978a126c41","name":"Return Conversion","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[4720,-160]},{"parameters":{"operation":"executeQuery","query":"UPDATE rag_documents SET status = 'embedding', updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'embedding', 'ollama', jsonb_build_object('chunkCount', $2::integer));\nSELECT $1::text AS \"documentId\";","options":{"queryReplacement":"={{ [$json.documentId, $json.chunks.length] }}"}},"id":"a8cc3987-f0e6-424f-9611-1a321e3e8ff3","name":"Mark Embedding","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[4960,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"method":"POST","url":"http://ollama:11434/api/embed","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ model: 'nomic-embed-text', input: $('Return Conversion').first().json.chunks.map(c => c.text), truncate: true }) }}","options":{"timeout":600000}},"id":"1bf1ee65-b154-4543-b056-29b808fec0b2","name":"Generate Embeddings","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[5200,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":2000,"onError":"continueErrorOutput"},{"parameters":{"jsCode":"\nconst contract = $('Return Conversion').first().json;\nconst response = $input.first().json;\nconst chunks = contract.chunks;\nconst embeddings = response.embeddings;\nif (!Array.isArray(chunks) || chunks.length === 0) throw new Error('No chunks supplied for indexing');\nif (!Array.isArray(embeddings) || embeddings.length !== chunks.length) {\n  throw new Error('Ollama embedding count does not match chunk count');\n}\nconst points = chunks.map((chunk, index) => {\n  const vector = embeddings[index];\n  if (!Array.isArray(vector) || vector.length !== 768) {\n    throw new Error('Embedding dimension must be 768 for chunk ' + index);\n  }\n  return {\n    id: chunk.id,\n    vector,\n    payload: {\n      document_id: chunk.document_id,\n      kb_id: chunk.kb_id,\n      chunk_id: chunk.chunk_id,\n      chunk_index: chunk.chunk_index,\n      text: chunk.text,\n      heading_path: chunk.heading_path || [],\n      page_start: chunk.page_start,\n      page_end: chunk.page_end,\n      content_type: chunk.content_type,\n      source_key: chunk.source_key,\n      source_sha256: chunk.source_sha256,\n      filename: chunk.filename\n    }\n  };\n});\nreturn [{json:{documentId:contract.documentId,kbId:contract.kbId,chunkCount:chunks.length,points}}];\n"},"id":"86042161-f9b5-4b8c-849f-8994d25402fa","name":"Build Vector Points","type":"n8n-nodes-base.code","typeVersion":2,"position":[5440,-160],"onError":"continueErrorOutput"},{"parameters":{"method":"POST","url":"http://qdrant:6333/collections/rag_chunks/points/delete?wait=true","authentication":"predefinedCredentialType","nodeCredentialType":"qdrantApi","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ filter: { must: [{ key: 'document_id', match: { value: $json.documentId } }] } }) }}","options":{"timeout":120000}},"id":"531b3be9-254d-431c-bc71-18bf33acba1d","name":"Delete Previous Vectors","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[5680,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"credentials":{"qdrantApi":{"id":"RxQ7256kohP8jsgH","name":"Local RAG Qdrant"}},"onError":"continueErrorOutput"},{"parameters":{"method":"PUT","url":"http://qdrant:6333/collections/rag_chunks/points?wait=true","authentication":"predefinedCredentialType","nodeCredentialType":"qdrantApi","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ points: $('Build Vector Points').first().json.points }) }}","options":{"timeout":300000}},"id":"afe2a87a-b01f-4202-8c8c-47e1513672fa","name":"Upsert Vectors","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[5920,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"credentials":{"qdrantApi":{"id":"RxQ7256kohP8jsgH","name":"Local RAG Qdrant"}},"onError":"continueErrorOutput"},{"parameters":{"operation":"executeQuery","query":"UPDATE rag_documents SET status = 'indexed', chunk_count = $2::integer, indexed_at = now(), error_code = NULL, error_message = NULL, error_details = NULL, updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'indexed', 'qdrant', jsonb_build_object('chunkCount', $2::integer, 'collection', 'rag_chunks'));\nSELECT $1::text AS \"documentId\", $2::integer AS \"chunkCount\", 'indexed'::text AS status;","options":{"queryReplacement":"={{ [$('Build Vector Points').first().json.documentId, $('Build Vector Points').first().json.chunkCount] }}"}},"id":"c039b928-1521-41ce-9a9f-9b5b5b565059","name":"Mark Indexed","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[6160,-160],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"assignments":{"assignments":[{"id":"a6cb01e1-5e8e-46b4-850e-db1d441a15bb","name":"documentId","type":"string","value":"={{ $json.documentId }}"},{"id":"c8ae6e15-4e5c-4a17-ab46-fb6fa9fd73a7","name":"kbId","type":"string","value":"={{ $('Build Vector Points').first().json.kbId }}"},{"id":"1316346a-3cc0-405d-a4ac-de4106a1b15b","name":"status","type":"string","value":"indexed"},{"id":"e87395a0-3bb3-4351-88e7-0dd0257759b9","name":"chunkCount","type":"number","value":"={{ $json.chunkCount }}"},{"id":"10000000-0000-4000-8000-000000000021","name":"requestSource","type":"string","value":"={{ $('Claim Document').first().json.requestSource }}"}]},"options":{}},"id":"ca63bc1d-f279-47ed-9bab-cbd12450164e","name":"Return Indexed State","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[6400,-160]},{"parameters":{"assignments":{"assignments":[{"id":"5cf50171-4ba4-45a2-baac-4fb2a1b4771a","name":"documentId","type":"string","value":"={{ $('Claim Document').first().json.documentId }}"},{"id":"e84bbb7f-7425-4810-af93-edc21377cab6","name":"stage","type":"string","value":"conversion"},{"id":"0ba51562-3228-4848-a54e-53aef7c7b65f","name":"errorCode","type":"string","value":"DOCLING_OR_CHUNKING_FAILED"},{"id":"f7abed35-b2d5-46b9-9758-787a8da08927","name":"errorMessage","type":"string","value":"={{ ($json.error && $json.error.message) || $json.message || 'Conversion failed' }}"},{"id":"5e7757a7-d1ae-4721-869a-6f568e51278b","name":"errorDetails","type":"object","value":"={{ $json }}"},{"id":"10000000-0000-4000-8000-000000000022","name":"requestSource","type":"string","value":"={{ $('Claim Document').first().json.requestSource || 'internal' }}"}]},"options":{}},"id":"8f1b825b-3bc7-4dfa-9bda-e129912a3440","name":"Normalize Conversion Failure","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[4208,224]},{"parameters":{"assignments":{"assignments":[{"id":"7a5d6f1c-24ad-4103-b81d-2aa1aa78863e","name":"documentId","type":"string","value":"={{ $('Claim Document').first().json.documentId }}"},{"id":"7f8b1743-9065-4c96-aa45-0ae21e1b26e3","name":"stage","type":"string","value":"indexing"},{"id":"ee9e203a-6cf2-4725-af77-a51428ad10a5","name":"errorCode","type":"string","value":"EMBEDDING_OR_INDEX_FAILED"},{"id":"5c138300-a6fd-42ef-9144-f0d3f5644b2a","name":"errorMessage","type":"string","value":"={{ ($json.error && $json.error.message) || $json.message || 'Indexing failed' }}"},{"id":"d093eb2a-78db-4a39-956f-49ef5795f659","name":"errorDetails","type":"object","value":"={{ $json }}"},{"id":"10000000-0000-4000-8000-000000000023","name":"requestSource","type":"string","value":"={{ $('Claim Document').first().json.requestSource || 'internal' }}"}]},"options":{}},"id":"1e52e118-69b0-44f9-ad86-cf3684fc50a7","name":"Normalize Index Failure","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[5712,224]},{"parameters":{"operation":"executeQuery","query":"WITH updated AS (\n  UPDATE rag_documents\n  SET status = 'failed',\n      error_stage = $2,\n      error_code = $3,\n      error_message = left($4, 2000),\n      error_details = $5::jsonb,\n      updated_at = now()\n  WHERE id = $1::uuid\n  RETURNING id, kb_id, status, error_stage, error_code, error_message, updated_at\n), event AS (\n  INSERT INTO rag_document_events (document_id, status, stage, message, details, execution_id)\n  SELECT id, 'failed', error_stage, error_message, error_details, $6\n  FROM updated\n)\nSELECT id::text AS \"documentId\",\n       kb_id::text AS \"kbId\",\n       status,\n       error_stage AS \"errorStage\",\n       error_code AS \"errorCode\",\n       error_message AS \"errorMessage\",\n       updated_at AS \"updatedAt\"\nFROM updated;","options":{"queryBatching":"single","queryReplacement":"={{ [$json.documentId, $json.stage, $json.errorCode || 'processing_error', $json.errorMessage || 'Document processing failed', JSON.stringify($json.errorDetails || {}), $execution.id] }}"}},"id":"ddf056a5-8108-445f-93c0-c309c6769f68","name":"Persist Failure","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[6192,224],"retryOnFail":true,"maxTries":3,"waitBetweenTries":2000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"assignments":{"assignments":[{"id":"741bdd99-48d5-4d38-8f97-0bbb4d92080c","name":"ok","value":false,"type":"boolean"},{"id":"436b510d-0fa9-47e7-aa68-121a44b02c83","name":"documentId","value":"={{ $json.documentId }}","type":"string"},{"id":"7242d86e-cd46-4515-aa75-054e4bcae100","name":"status","value":"={{ $json.status }}","type":"string"},{"id":"25745929-18e6-409b-9877-0046d96f4a48","name":"errorStage","value":"={{ $json.errorStage }}","type":"string"},{"id":"111b7634-fba0-44a0-a188-fd89aa23fada","name":"errorCode","value":"={{ $json.errorCode }}","type":"string"},{"id":"bd28a670-8efb-4bb3-a13d-c7625b20238c","name":"errorMessage","value":"={{ $json.errorMessage }}","type":"string"},{"id":"10000000-0000-4000-8000-000000000024","name":"requestSource","type":"string","value":"={{ $json.requestSource || 'internal' }}"}]},"options":{}},"id":"66e56d51-16bb-4431-babe-bf540f1b44af","name":"Return Failure State","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[6432,224]},{"parameters":{"jsCode":"const d = $input.first().json;\nreturn [{json:{\n  ok: true,\n  action: 'ingest',\n  documentId: d.documentId,\n  kbId: d.kbId || null,\n  status: d.status,\n  chunkCount: Number(d.chunkCount || 0),\n  skipped: Boolean(d.skipped),\n  requestSource: d.requestSource || 'internal'\n}}];"},"id":"10000000-0000-4000-8000-000000000025","name":"Format Ingestion Result","type":"n8n-nodes-base.code","typeVersion":2,"position":[6640,-160]},{"parameters":{"jsCode":"const d = $input.first().json;\nreturn [{json:{\n  ok: false,\n  action: 'ingest',\n  documentId: d.documentId || null,\n  status: d.status || 'failed',\n  error: { stage: d.errorStage || d.stage || 'ingestion', code: d.errorCode || 'INGESTION_FAILED', message: d.errorMessage || d.message || d.error?.message || 'Ingestion failed' },\n  requestSource: d.requestSource || 'internal'\n}}];"},"id":"10000000-0000-4000-8000-000000000026","name":"Format Ingestion Failure","type":"n8n-nodes-base.code","typeVersion":2,"position":[6672,224]},{"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict","version":2},"conditions":[{"id":"10000000-0000-4000-8000-000000000027","leftValue":"={{ $json.requestSource }}","rightValue":"webhook","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"options":{}},"id":"10000000-0000-4000-8000-000000000028","name":"Return Ingestion to Webhook?","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[6912,-160]},{"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict","version":2},"conditions":[{"id":"10000000-0000-4000-8000-000000000029","leftValue":"={{ $json.requestSource }}","rightValue":"webhook","operator":{"type":"string","operation":"equals"}}],"combinator":"and"},"options":{}},"id":"10000000-0000-4000-8000-000000000030","name":"Return Failure to Webhook?","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[6912,224]},{"parameters":{"options":{"responseCode":200,"enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000031","name":"Respond Ingestion","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[7168,-160]},{"parameters":{"options":{"responseCode":500,"enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000032","name":"Respond Ingestion Failure","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[7168,224]},{"parameters":{"method":"POST","url":"http://ollama:11434/api/embed","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ model: 'nomic-embed-text', input: [$('Normalize and Validate Request').first().json.query], truncate: true }) }}","options":{"timeout":120000}},"id":"10000000-0000-4000-8000-000000000033","name":"Embed User Query","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[864,992],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"onError":"continueErrorOutput"},{"parameters":{"method":"POST","url":"http://qdrant:6333/collections/rag_chunks/points/query","authentication":"predefinedCredentialType","nodeCredentialType":"qdrantApi","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ query: $json.embeddings[0], filter: { must: [{ key: 'kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } }] }, limit: $('Normalize and Validate Request').first().json.topK, with_payload: true, with_vector: false, score_threshold: 0.2 }) }}","options":{"timeout":120000}},"id":"10000000-0000-4000-8000-000000000034","name":"Search Qdrant","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[1120,992],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"credentials":{"qdrantApi":{"id":"RxQ7256kohP8jsgH","name":"Local RAG Qdrant"}},"onError":"continueErrorOutput"},{"parameters":{"jsCode":"const response = $input.first().json;\nconst request = $('Normalize and Validate Request').first().json;\nconst points = Array.isArray(response?.result?.points) ? response.result.points : (Array.isArray(response?.result) ? response.result : []);\nconst sources = points.map((point, index) => {\n  const p = point.payload || {};\n  return {\n    id: 'S' + (index + 1),\n    score: Number(point.score || 0),\n    documentId: p.document_id || null,\n    chunkId: p.chunk_id || null,\n    filename: p.filename || 'unknown',\n    pageStart: p.page_start ?? null,\n    pageEnd: p.page_end ?? null,\n    headingPath: Array.isArray(p.heading_path) ? p.heading_path : [],\n    sourceKey: p.source_key || null,\n    text: String(p.text || '')\n  };\n});\nconst context = sources.length\n  ? sources.map(s => '[' + s.id + '] ' + s.filename + (s.pageStart != null ? ' page ' + s.pageStart : '') + '\\n' + s.text).join('\\n\\n')\n  : '(No matching context was retrieved.)';\nconst system = [\n  'You are a local retrieval-grounded assistant.',\n  'Answer only from the supplied context.',\n  'Cite factual claims using the provided source IDs such as [S1].',\n  'If the context is insufficient, say that the indexed documents do not contain enough information.',\n  'Do not invent sources, filenames, page numbers, or facts.',\n  'Keep the answer concise and useful.'\n].join(' ');\nreturn [{json:{query:request.query,kbId:request.kbId,model:'qwen3:4b',sources,context,system}}];"},"id":"10000000-0000-4000-8000-000000000035","name":"Assemble Grounded Context","type":"n8n-nodes-base.code","typeVersion":2,"position":[1392,992]},{"parameters":{"method":"POST","url":"http://ollama:11434/api/chat","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ model: $json.model, stream: false, think: false, messages: [{ role: 'system', content: $json.system }, { role: 'user', content: 'Question:\\n' + $json.query + '\\n\\nContext:\\n' + $json.context }], options: { temperature: 0.1, num_ctx: 2048 } }) }}","options":{"timeout":600000}},"id":"10000000-0000-4000-8000-000000000036","name":"Generate Grounded Answer","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[1648,992],"retryOnFail":true,"maxTries":2,"waitBetweenTries":2000,"onError":"continueErrorOutput"},{"parameters":{"jsCode":"const response = $input.first().json;\nconst context = $('Assemble Grounded Context').first().json;\nconst rawAnswer = String(response?.message?.content || response?.response || '').trim();\\nconst answer = rawAnswer.includes('</think>') ? rawAnswer.split('</think>').pop().trim() : rawAnswer;\nreturn [{json:{\n  ok: true,\n  action: 'query',\n  query: context.query,\n  answer: answer || 'The local model returned an empty answer.',\n  sources: context.sources.map(({text, ...source}) => source),\n  retrieval: { type: 'vector', resultCount: context.sources.length, collection: 'rag_chunks' },\n  model: context.model\n}}];"},"id":"10000000-0000-4000-8000-000000000037","name":"Format Answer with Sources","type":"n8n-nodes-base.code","typeVersion":2,"position":[1904,992]},{"parameters":{"options":{"responseCode":200,"enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000038","name":"Respond Query","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[2160,992]},{"parameters":{"jsCode":"const d=$input.first().json; return [{json:{ok:false,action:'query',error:{code:'RETRIEVAL_FAILED',message:d.error?.message||d.message||'Retrieval or generation failed'}}}];"},"id":"10000000-0000-4000-8000-000000000039","name":"Format Retrieval Failure","type":"n8n-nodes-base.code","typeVersion":2,"position":[1648,1248]},{"parameters":{"options":{"responseCode":502,"enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000040","name":"Respond Retrieval Failure","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[1936,1328]},{"parameters":{"method":"POST","url":"http://qdrant:6333/collections/rag_chunks/points/delete?wait=true","authentication":"predefinedCredentialType","nodeCredentialType":"qdrantApi","sendBody":true,"contentType":"raw","rawContentType":"application/json","body":"={{ JSON.stringify({ filter: { must: [ $('Normalize and Validate Request').first().json.documentId ? { key: 'document_id', match: { value: $('Normalize and Validate Request').first().json.documentId } } : { key: 'kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } } ] } }) }}","options":{"timeout":120000}},"id":"10000000-0000-4000-8000-000000000041","name":"Delete Reset Vectors","type":"n8n-nodes-base.httpRequest","typeVersion":4.4,"position":[864,1792],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1500,"credentials":{"qdrantApi":{"id":"RxQ7256kohP8jsgH","name":"Local RAG Qdrant"}},"onError":"continueErrorOutput"},{"parameters":{"operation":"executeQuery","query":"WITH updated AS (\n  UPDATE rag_documents\n  SET status = 'pending',\n      chunk_count = 0,\n      indexed_at = NULL,\n      error_stage = NULL,\n      error_code = NULL,\n      error_message = NULL,\n      error_details = NULL,\n      updated_at = now()\n  WHERE (NULLIF($1::text, '') IS NOT NULL AND id = NULLIF($1::text, '')::uuid)\n     OR (NULLIF($1::text, '') IS NULL AND kb_id = $2::uuid)\n  RETURNING id, kb_id\n), events AS (\n  INSERT INTO rag_document_events(document_id, status, stage, message, details, execution_id)\n  SELECT id, 'pending', 'admin_reset', 'Vectors removed; source artifacts preserved', '{}'::jsonb, $3::text\n  FROM updated\n)\nSELECT count(*)::integer AS \"resetCount\",\n       COALESCE(array_agg(id::text), ARRAY[]::text[]) AS \"documentIds\",\n       $4::boolean AS reprocess,\n       'webhook'::text AS \"requestSource\"\nFROM updated;","options":{"queryBatching":"single","queryReplacement":"={{ [$('Normalize and Validate Request').first().json.documentId, $('Normalize and Validate Request').first().json.kbId, $execution.id, $('Normalize and Validate Request').first().json.reprocess] }}"}},"id":"10000000-0000-4000-8000-000000000042","name":"Reset Document State","type":"n8n-nodes-base.postgres","typeVersion":2.6,"position":[1120,1792],"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000,"credentials":{"postgres":{"id":"7UPITeZ6Fa10t1Gg","name":"Local RAG PostgreSQL"}},"onError":"continueErrorOutput"},{"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict","version":2},"conditions":[{"id":"10000000-0000-4000-8000-000000000043","leftValue":"={{ $json.reprocess && $json.resetCount === 1 }}","rightValue":true,"operator":{"type":"boolean","operation":"true","singleValue":true}}],"combinator":"and"},"options":{}},"id":"10000000-0000-4000-8000-000000000044","name":"Reprocess After Reset?","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[1392,1792]},{"parameters":{"assignments":{"assignments":[{"id":"10000000-0000-4000-8000-000000000045","name":"documentId","type":"string","value":"={{ $json.documentIds[0] }}"},{"id":"10000000-0000-4000-8000-000000000046","name":"requestSource","type":"string","value":"webhook"}]},"options":{}},"id":"10000000-0000-4000-8000-000000000047","name":"Pass Reset Document","type":"n8n-nodes-base.set","typeVersion":3.4,"position":[1648,1664]},{"parameters":{"jsCode":"const d=$input.first().json; return [{json:{ok:true,action:'reset',resetCount:Number(d.resetCount||0),documentIds:d.documentIds||[],artifactsPreserved:true}}];"},"id":"10000000-0000-4000-8000-000000000048","name":"Format Reset Result","type":"n8n-nodes-base.code","typeVersion":2,"position":[1648,1904]},{"parameters":{"options":{"responseCode":200,"enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000049","name":"Respond Reset","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[1904,1904]},{"parameters":{"jsCode":"const d=$input.first().json; return [{json:{ok:false,action:'reset',error:{code:'RESET_FAILED',message:d.error?.message||d.message||'Reset failed'}}}];"},"id":"10000000-0000-4000-8000-000000000050","name":"Format Reset Failure","type":"n8n-nodes-base.code","typeVersion":2,"position":[1392,2112]},{"parameters":{"options":{"responseCode":500,"enableStreaming":false}},"id":"10000000-0000-4000-8000-000000000051","name":"Respond Reset Failure","type":"n8n-nodes-base.respondToWebhook","typeVersion":1.5,"position":[1648,2112]},{"parameters":{},"id":"10000000-0000-4000-8000-000000000052","name":"No Inbox Files","type":"n8n-nodes-base.noOp","typeVersion":1,"position":[528,-448]},{"parameters":{"conditions":{"options":{"caseSensitive":true,"leftValue":"","typeValidation":"strict","version":2},"conditions":[{"id":"10000000-0000-4000-8000-000000000054","leftValue":"={{ $json.sources.length > 0 }}","rightValue":true,"operator":{"type":"boolean","operation":"true","singleValue":true}}],"combinator":"and"},"options":{}},"id":"10000000-0000-4000-8000-000000000053","name":"Context Found?","type":"n8n-nodes-base.if","typeVersion":2.3,"position":[1632,992]},{"parameters":{"jsCode":"const d=$input.first().json; return [{json:{ok:true,action:'query',query:d.query,answer:'The indexed documents do not contain enough information to answer this question.',sources:[],retrieval:{type:'vector',resultCount:0,collection:'rag_chunks'},model:null}}];"},"id":"10000000-0000-4000-8000-000000000055","name":"Format No Context Answer","type":"n8n-nodes-base.code","typeVersion":2,"position":[1904,1168]},{"parameters":{"jsCode":"const merged=$input.first();\nlet source=null;\ntry { source=$('Normalize and Validate Request').first(); } catch {}\nif (!source?.binary?.data) {\n  try { source=$('Prepare Watched File').first(); } catch {}\n}\nif (!source?.binary?.data) throw new Error('Intake source binary is unavailable');\nreturn [{json:merged.json,binary:source.binary}];"},"id":"10000000-0000-4000-8000-000000000056","name":"Restore Upload Binary","type":"n8n-nodes-base.code","typeVersion":2,"position":[1712,-80]}],"connections":{"RAG API":{"main":[[{"node":"Normalize and Validate Request","type":"main","index":0}]]},"Normalize and Validate Request":{"main":[[{"node":"Route Action","type":"main","index":0}]]},"Route Action":{"main":[[{"node":"Hash Source File","type":"main","index":0}],[{"node":"Embed User Query","type":"main","index":0}],[{"node":"Delete Reset Vectors","type":"main","index":0}],[{"node":"Respond Invalid Request","type":"main","index":0}]]},"Watch Local Inbox":{"main":[[{"node":"Read Watched File","type":"main","index":0}]]},"Read Watched File":{"main":[[{"node":"Prepare Watched File","type":"main","index":0}],[{"node":"No Inbox Files","type":"main","index":0}]]},"Prepare Watched File":{"main":[[{"node":"Hash Source File","type":"main","index":0}]]},"Hash Source File":{"main":[[{"node":"Register Document","type":"main","index":0},{"node":"Merge Upload Context","type":"main","index":1}]]},"Register Document":{"main":[[{"node":"Merge Upload Context","type":"main","index":0}],[{"node":"Format Ingestion Failure","type":"main","index":0}]]},"Upload Source to MinIO":{"main":[[{"node":"Pass Registered Document","type":"main","index":0}]]},"Pass Registered Document":{"main":[[{"node":"Claim Document","type":"main","index":0}]]},"Claim Document":{"main":[[{"node":"Should Process","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Should Process":{"main":[[{"node":"Mark Extracting","type":"main","index":0}],[{"node":"Return Existing State","type":"main","index":0}]]},"Mark Extracting":{"main":[[{"node":"Download Source","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Download Source":{"main":[[{"node":"Docling Convert","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Docling Convert":{"main":[[{"node":"Decompress Docling ZIP","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Decompress Docling ZIP":{"main":[[{"node":"Build Artifacts and Chunks","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Build Artifacts and Chunks":{"main":[[{"node":"Upload Artifacts","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Upload Artifacts":{"main":[[{"node":"Collect Conversion Result","type":"main","index":0}]]},"Collect Conversion Result":{"main":[[{"node":"Mark Chunked","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Mark Chunked":{"main":[[{"node":"Return Conversion","type":"main","index":0}],[{"node":"Normalize Conversion Failure","type":"main","index":0}]]},"Return Conversion":{"main":[[{"node":"Mark Embedding","type":"main","index":0}]]},"Mark Embedding":{"main":[[{"node":"Generate Embeddings","type":"main","index":0}],[{"node":"Normalize Index Failure","type":"main","index":0}]]},"Generate Embeddings":{"main":[[{"node":"Build Vector Points","type":"main","index":0}],[{"node":"Normalize Index Failure","type":"main","index":0}]]},"Build Vector Points":{"main":[[{"node":"Delete Previous Vectors","type":"main","index":0}],[{"node":"Normalize Index Failure","type":"main","index":0}]]},"Delete Previous Vectors":{"main":[[{"node":"Upsert Vectors","type":"main","index":0}],[{"node":"Normalize Index Failure","type":"main","index":0}]]},"Upsert Vectors":{"main":[[{"node":"Mark Indexed","type":"main","index":0}],[{"node":"Normalize Index Failure","type":"main","index":0}]]},"Mark Indexed":{"main":[[{"node":"Return Indexed State","type":"main","index":0}],[{"node":"Normalize Index Failure","type":"main","index":0}]]},"Normalize Conversion Failure":{"main":[[{"node":"Persist Failure","type":"main","index":0}]]},"Normalize Index Failure":{"main":[[{"node":"Persist Failure","type":"main","index":0}]]},"Persist Failure":{"main":[[{"node":"Return Failure State","type":"main","index":0}],[{"node":"Format Ingestion Failure","type":"main","index":0}]]},"Return Indexed State":{"main":[[{"node":"Format Ingestion Result","type":"main","index":0}]]},"Return Existing State":{"main":[[{"node":"Format Ingestion Result","type":"main","index":0}]]},"Format Ingestion Result":{"main":[[{"node":"Return Ingestion to Webhook?","type":"main","index":0}]]},"Return Ingestion to Webhook?":{"main":[[{"node":"Respond Ingestion","type":"main","index":0}]]},"Return Failure State":{"main":[[{"node":"Format Ingestion Failure","type":"main","index":0}]]},"Format Ingestion Failure":{"main":[[{"node":"Return Failure to Webhook?","type":"main","index":0}]]},"Return Failure to Webhook?":{"main":[[{"node":"Respond Ingestion Failure","type":"main","index":0}]]},"Embed User Query":{"main":[[{"node":"Search Qdrant","type":"main","index":0}],[{"node":"Format Retrieval Failure","type":"main","index":0}]]},"Search Qdrant":{"main":[[{"node":"Assemble Grounded Context","type":"main","index":0}],[{"node":"Format Retrieval Failure","type":"main","index":0}]]},"Generate Grounded Answer":{"main":[[{"node":"Format Answer with Sources","type":"main","index":0}],[{"node":"Format Retrieval Failure","type":"main","index":0}]]},"Format Answer with Sources":{"main":[[{"node":"Respond Query","type":"main","index":0}]]},"Format Retrieval Failure":{"main":[[{"node":"Respond Retrieval Failure","type":"main","index":0}]]},"Delete Reset Vectors":{"main":[[{"node":"Reset Document State","type":"main","index":0}],[{"node":"Format Reset Failure","type":"main","index":0}]]},"Reset Document State":{"main":[[{"node":"Reprocess After Reset?","type":"main","index":0}],[{"node":"Format Reset Failure","type":"main","index":0}]]},"Reprocess After Reset?":{"main":[[{"node":"Pass Reset Document","type":"main","index":0}],[{"node":"Format Reset Result","type":"main","index":0}]]},"Pass Reset Document":{"main":[[{"node":"Claim Document","type":"main","index":0}]]},"Format Reset Result":{"main":[[{"node":"Respond Reset","type":"main","index":0}]]},"Format Reset Failure":{"main":[[{"node":"Respond Reset Failure","type":"main","index":0}]]},"Assemble Grounded Context":{"main":[[{"node":"Context Found?","type":"main","index":0}]]},"Context Found?":{"main":[[{"node":"Generate Grounded Answer","type":"main","index":0}],[{"node":"Format No Context Answer","type":"main","index":0}]]},"Format No Context Answer":{"main":[[{"node":"Respond Query","type":"main","index":0}]]},"Merge Upload Context":{"main":[[{"node":"Restore Upload Binary","type":"main","index":0}]]},"Restore Upload Binary":{"main":[[{"node":"Upload Source to MinIO","type":"main","index":0}]]}},"settings":{"executionOrder":"v1","timezone":"Asia/Kuala_Lumpur","saveDataErrorExecution":"all","saveDataSuccessExecution":"all","saveManualExecutions":true,"saveExecutionProgress":true,"executionTimeout":1800,"binaryMode":"separate"},"staticData":{"node:Watch Local Inbox":{"recurrenceRules":[]}},"meta":null,"nodeGroups":[],"pinData":{},"versionId":"bbf6f6bc-7021-41eb-817e-682a0462813d","activeVersionId":"246c23bd-2a21-4d3b-a686-6f1c4535b7f5","versionCounter":13,"triggerCount":2,"sourceWorkflowId":null,"tags":[],"shared":[{"updatedAt":"2026-06-24T17:52:45.948Z","createdAt":"2026-06-24T17:52:45.948Z","role":"workflow:owner","workflowId":"M1oNSxViwXJpX7w2","projectId":"Qaf01ThR7y4VFv0a","project":{"updatedAt":"2026-06-24T07:27:18.714Z","createdAt":"2026-06-24T06:58:00.072Z","id":"Qaf01ThR7y4VFv0a","name":"Hat LikesApples <fattahhj123@gmail.com>","type":"personal","icon":null,"description":null,"customTelemetryTags":[],"creatorId":"21071879-a421-4bc1-91a2-a93818d7c13e"}}],"versionMetadata":{"name":null,"description":null}}]
+[
+  {
+    "updatedAt": "2026-06-24T18:21:02.787Z",
+    "createdAt": "2026-06-24T17:52:45.948Z",
+    "id": "M1oNSxViwXJpX7w2",
+    "name": "Phase 4: Single-Canvas Local RAG",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "content": "## Single local RAG entrypoint\nPOST `/webhook/rag`\n\nActions:\n- `ingest`: multipart file field `file` (legacy `data` also accepted)\n- `query`: `query`, optional `kbId`, `topK`\n- `reset`: `confirm: RESET` plus `documentId` or `kbId`\n- `reprocess`: `confirm: RESET` plus `documentId`\n\nDefault KB: `00000000-0000-4000-8000-000000000001`\nMax upload: 25 MiB.",
+          "height": 500,
+          "width": 1450,
+          "color": 5
+        },
+        "id": "10000000-0000-4000-8000-000000000001",
+        "name": "00 - API Contract",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -304,
+          -304
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## Folder monitoring\nEvery five minutes the schedule polls `/files/inbox/*`.\nThe same hash, deduplication, MinIO, Docling, embedding, and indexing path is used.\nBoth n8n main and worker containers mount the same host folder.",
+          "height": 420,
+          "width": 1450,
+          "color": 4
+        },
+        "id": "10000000-0000-4000-8000-000000000002",
+        "name": "10 - Folder Intake",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -304,
+          -896
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## Ingestion lifecycle\nValidate -> SHA-256 -> register/idempotency -> MinIO -> Docling -> semantic chunks -> Ollama embeddings -> Qdrant -> PostgreSQL indexed state.\n\nThe formerly separate ingestion workflows are inlined here so this workflow exports as one portable file.",
+          "height": 900,
+          "width": 3600,
+          "color": 3
+        },
+        "id": "10000000-0000-4000-8000-000000000003",
+        "name": "20 - Ingestion",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1200,
+          -304
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## Grounded retrieval\nNormalize query -> same Ollama embedding model -> Qdrant semantic search filtered by KB -> context/source assembly -> Ollama chat -> answer + sources.\n\nVector retrieval is implemented now. BM25 and a separate reranker are intentionally deferred because the current local stack has neither a lexical index nor reranker service.",
+          "height": 700,
+          "width": 3600,
+          "color": 6
+        },
+        "id": "10000000-0000-4000-8000-000000000004",
+        "name": "30 - Retrieval",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -304,
+          800
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## Safe reset and reprocess\nReset deletes matching Qdrant points and returns PostgreSQL documents to `pending`.\nMinIO source/artifacts are preserved.\n`reprocess` performs the reset and then enters the ingestion pipeline using the stored source.",
+          "height": 650,
+          "width": 3200,
+          "color": 2
+        },
+        "id": "10000000-0000-4000-8000-000000000005",
+        "name": "40 - Admin Reset",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -304,
+          1600
+        ]
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "rag",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000006",
+        "name": "RAG API",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          0,
+          0
+        ],
+        "webhookId": "19a49d84-397f-4e27-a40c-667efe721d9b",
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst body = item.json?.body || {};\nconst binary = item.binary || {};\nconst defaultKbId = '00000000-0000-4000-8000-000000000001';\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst requested = String(body.action || (binary.data || binary.file ? 'ingest' : (body.query || body.message ? 'query' : ''))).trim().toLowerCase();\nconst action = requested === 'reprocess' ? 'reset' : requested;\nconst kbId = String(body.kbId || defaultKbId).trim();\nconst query = String(body.query || body.message || '').trim();\nconst documentId = String(body.documentId || '').trim();\nconst confirm = String(body.confirm || '').trim();\nconst force = body.force === true || String(body.force || '').toLowerCase() === 'true';\nconst reprocess = requested === 'reprocess';\nconst topK = Math.max(1, Math.min(12, Number(body.topK || 6) || 6));\nlet error = '';\nlet statusCode = 400;\nconst binaryInputName = binary.data ? 'data' : 'file';\nlet file = binary.data || binary.file;\nlet sourceSize = Number(file?.fileSize || 0);\nif (action === 'ingest') {\n  if (!file) error = 'action=ingest requires a multipart file in binary field \"data\"';\n  if (!error && !uuid.test(kbId)) error = 'kbId must be a UUID';\n  if (!error && !sourceSize) {\n    const buffer = await this.helpers.getBinaryDataBuffer(0, binaryInputName);\n    sourceSize = buffer.length;\n  }\n  if (!error && sourceSize <= 0) error = 'Uploaded file is empty';\n  if (!error && sourceSize > 26214400) { error = 'Uploaded file exceeds 25 MiB'; statusCode = 413; }\n} else if (action === 'query') {\n  if (!query) error = 'action=query requires query or message';\n  if (!error && !uuid.test(kbId)) error = 'kbId must be a UUID';\n} else if (action === 'reset') {\n  if (confirm !== 'RESET') error = 'reset and reprocess require confirm=RESET';\n  if (!error && documentId && !uuid.test(documentId)) error = 'documentId must be a UUID';\n  if (!error && !documentId && !uuid.test(kbId)) error = 'kbId must be a UUID';\n  if (!error && reprocess && !documentId) error = 'reprocess requires documentId';\n} else {\n  error = 'action must be ingest, query, reset, or reprocess';\n}\nconst filename = String(file?.fileName || body.filename || 'upload.bin').replace(/[\\\\/]/g, '_');\nconst extension = (filename.includes('.') ? filename.split('.').pop() : 'bin').toLowerCase();\nconst mimeType = String(file?.mimeType || body.mimeType || 'application/octet-stream');\nreturn [{\n  json: { action: error ? 'invalid' : action, requestedAction: requested, requestSource: 'webhook', kbId, query, documentId, confirm, force, reprocess, topK, filename, extension, mimeType, sourceSize, error, statusCode },\n  binary: file ? {...binary, data: file} : binary\n}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000007",
+        "name": "Normalize and Validate Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          272,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "expression",
+          "output": "={{ ({ingest: 0, query: 1, reset: 2})[$json.action] ?? 3 }}"
+        },
+        "id": "10000000-0000-4000-8000-000000000008",
+        "name": "Route Action",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3.4,
+        "position": [
+          544,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { ok: false, error: $json.error, action: $json.requestedAction || null } }}",
+          "options": {
+            "responseCode": "={{ $json.statusCode || 400 }}",
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000009",
+        "name": "Respond Invalid Request",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          832,
+          368
+        ]
+      },
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes"
+              }
+            ]
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000010",
+        "name": "Watch Local Inbox",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          -656
+        ]
+      },
+      {
+        "parameters": {
+          "fileSelector": "/files/inbox/*",
+          "options": {
+            "dataPropertyName": "data"
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000011",
+        "name": "Read Watched File",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1.1,
+        "position": [
+          272,
+          -656
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first();\nconst binary = item.binary || {};\nif (!binary.data) throw new Error('Watched path did not produce binary data');\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\nif (buffer.length > 26214400) throw new Error('Watched file exceeds 25 MiB');\nconst rawPath = String(binary.data.fileName || 'watched.bin');\nconst filename = String(binary.data.fileName || rawPath.split(/[\\\\/]/).pop() || 'watched.bin').replace(/[\\\\/]/g, '_');\nconst extension = (filename.includes('.') ? filename.split('.').pop() : 'bin').toLowerCase();\nreturn [{\n  json: {\n    action: 'ingest',\n    requestedAction: 'ingest',\n    requestSource: 'folder',\n    kbId: '00000000-0000-4000-8000-000000000001',\n    force: true,\n    reprocess: false,\n    filename,\n    extension,\n    mimeType: binary.data.mimeType || 'application/octet-stream',\n    sourceSize: buffer.length\n  },\n  binary\n}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000012",
+        "name": "Prepare Watched File",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          528,
+          -656
+        ]
+      },
+      {
+        "parameters": {
+          "binaryData": true,
+          "dataPropertyName": "sourceSha256"
+        },
+        "id": "10000000-0000-4000-8000-000000000013",
+        "name": "Hash Source File",
+        "type": "n8n-nodes-base.crypto",
+        "typeVersion": 2,
+        "position": [
+          1072,
+          -80
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH candidate AS (\n  SELECT gen_random_uuid() AS id\n), upserted AS (\n  INSERT INTO rag_documents (\n    id, kb_id, source_sha256, filename, extension, mime_type, source_size, source_key, status\n  )\n  SELECT candidate.id,\n         $1::uuid,\n         $2::char(64),\n         $3::text,\n         $4::text,\n         $5::text,\n         $6::bigint,\n         format('documents/%s/%s/source/original', $1::text, candidate.id::text),\n         'pending'\n  FROM candidate\n  ON CONFLICT (kb_id, source_sha256) DO UPDATE\n  SET filename = EXCLUDED.filename,\n      extension = EXCLUDED.extension,\n      mime_type = EXCLUDED.mime_type,\n      source_size = EXCLUDED.source_size,\n      status = CASE WHEN $7::boolean THEN 'pending' ELSE rag_documents.status END,\n      error_stage = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_stage END,\n      error_code = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_code END,\n      error_message = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_message END,\n      error_details = CASE WHEN $7::boolean THEN NULL ELSE rag_documents.error_details END,\n      updated_at = now()\n  RETURNING *\n), event AS (\n  INSERT INTO rag_document_events(document_id, status, stage, details, execution_id)\n  SELECT id, status, 'intake',\n         jsonb_build_object('filename', filename, 'sourceSize', source_size, 'sourceSha256', source_sha256),\n         $8::text\n  FROM upserted\n)\nSELECT id::text AS \"documentId\",\n       kb_id::text AS \"kbId\",\n       source_key AS \"sourceKey\",\n       source_sha256::text AS \"sourceSha256\",\n       filename,\n       extension,\n       mime_type AS \"mimeType\",\n       source_size AS \"sourceSize\",\n       status,\n       $9::text AS \"requestSource\"\nFROM upserted;",
+          "options": {
+            "queryBatching": "single",
+            "queryReplacement": "={{ [$json.kbId, $json.sourceSha256, $json.filename, $json.extension, $json.mimeType, $json.sourceSize, $json.force, $execution.id, $json.requestSource] }}"
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000014",
+        "name": "Register Document",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1328,
+          -80
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "mode": "combine",
+          "combineBy": "combineByPosition",
+          "options": {
+            "clashHandling": {
+              "values": {
+                "resolveClash": "addSuffix"
+              }
+            }
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000015",
+        "name": "Merge Upload Context",
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          1584,
+          -80
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "upload",
+          "bucketName": "rag-documents",
+          "fileName": "={{ $('Register Document').first().json.sourceKey }}",
+          "additionalFields": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000016",
+        "name": "Upload Source to MinIO",
+        "type": "n8n-nodes-base.s3",
+        "typeVersion": 1,
+        "position": [
+          1840,
+          -80
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "alwaysOutputData": true,
+        "credentials": {
+          "s3": {
+            "id": "bbKhvZGX8F1ThzH4",
+            "name": "Local RAG MinIO"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "10000000-0000-4000-8000-000000000017",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $('Register Document').first().json.documentId }}"
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000018",
+                "name": "requestSource",
+                "type": "string",
+                "value": "={{ $('Register Document').first().json.requestSource }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000019",
+        "name": "Pass Registered Document",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          2080,
+          -80
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE rag_documents\n  SET status = 'processing', processing_attempt = processing_attempt + 1, error_code = NULL, error_message = NULL, error_details = NULL, updated_at = now()\n  WHERE id = $1::uuid AND status IN ('pending', 'failed')\n  RETURNING id\n)\nINSERT INTO rag_document_events(document_id, status, stage, details)\nSELECT id, 'processing', 'orchestrator', '{}'::jsonb FROM updated;\nWITH selected AS (\n SELECT id, kb_id, source_key, source_sha256, filename, mime_type, status FROM rag_documents WHERE id = $1::uuid\n)\nSELECT id::text AS \"documentId\", kb_id::text AS \"kbId\", source_key AS \"sourceKey\", source_sha256 AS \"sourceSha256\", filename AS filename, mime_type AS \"mimeType\", status, (status = 'processing') AS \"shouldProcess\", $2::text AS \"requestSource\" FROM selected;",
+          "options": {
+            "queryReplacement": "={{ [$json.documentId, $json.requestSource || 'internal'] }}"
+          }
+        },
+        "id": "0e04e97b-a907-4d00-a5d3-39be0186a323",
+        "name": "Claim Document",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2320,
+          -80
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "b452f25a-90ac-4793-a7fd-9f0bcc8069cd",
+                "leftValue": "={{ $json.shouldProcess }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "0c3dab22-8c74-45c3-9ca7-fe519b8f8d3a",
+        "name": "Should Process",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          2560,
+          -80
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "c246af96-9c31-435b-933e-38f8853a7c80",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $json.documentId }}"
+              },
+              {
+                "id": "eb4f64bd-e5c4-4405-a650-8c3ec41b9ced",
+                "name": "status",
+                "type": "string",
+                "value": "={{ $json.status }}"
+              },
+              {
+                "id": "ddbafe33-7128-428c-8728-466804fbd562",
+                "name": "skipped",
+                "type": "boolean",
+                "value": true
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000020",
+                "name": "requestSource",
+                "type": "string",
+                "value": "={{ $json.requestSource }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "fe106d8e-9cc5-49a2-8cdf-db755190709c",
+        "name": "Return Existing State",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          2800,
+          272
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE rag_documents SET status = 'extracting', updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'extracting', 'docling', jsonb_build_object('sourceKey', $2::text));\nSELECT $1::text AS \"documentId\";",
+          "options": {
+            "queryReplacement": "={{ [$json.documentId, $json.sourceKey] }}"
+          }
+        },
+        "id": "8d88308a-da28-4772-b032-8cdaae442436",
+        "name": "Mark Extracting",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2800,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+      "parameters": {
+        "operation": "download",
+        "bucketName": "rag-documents",
+        "fileKey": "={{ $('Claim Document').first().json.sourceKey }}"
+        },
+        "id": "f79f6ee7-280b-4b71-be3f-855a89ccf3e1",
+        "name": "Download Source",
+        "type": "n8n-nodes-base.s3",
+        "typeVersion": 1,
+        "position": [
+          3040,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "credentials": {
+          "s3": {
+            "id": "bbKhvZGX8F1ThzH4",
+            "name": "Local RAG MinIO"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "const item = $input.first();\nconst contract = $('Claim Document').first().json;\nif (!item.binary?.data) throw new Error('Downloaded source binary is unavailable');\nreturn [{\n  json: item.json,\n  binary: {\n    ...item.binary,\n    data: {\n      ...item.binary.data,\n      fileName: contract.filename,\n      mimeType: contract.mimeType\n    }\n  }\n}];"
+        },
+        "id": "6c12623a-4d77-4a3e-89bd-6f36b67eb621",
+        "name": "Restore Source Metadata",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3160,
+          -160
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://docling:5001/v1/convert/file",
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "parameterType": "formBinaryData",
+                "name": "files",
+                "inputDataFieldName": "data"
+              },
+              {
+                "name": "target_type",
+                "value": "zip"
+              },
+              {
+                "name": "to_formats",
+                "value": "md"
+              },
+              {
+                "name": "to_formats",
+                "value": "json"
+              },
+              {
+                "name": "image_export_mode",
+                "value": "referenced"
+              },
+              {
+                "name": "include_images",
+                "value": "true"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "file"
+              }
+            },
+            "timeout": 600000
+          }
+        },
+        "id": "4adbad37-735b-4c79-8f35-5b22c894ca9c",
+        "name": "Docling Convert",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          3280,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 3000,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {},
+        "id": "2fb6a513-59ed-4d86-a92c-d1330c3330ba",
+        "name": "Decompress Docling ZIP",
+        "type": "n8n-nodes-base.compression",
+        "typeVersion": 1.1,
+        "position": [
+          3520,
+          -160
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "\nconst contract = $('Claim Document').first().json;\nconst input = $input.first();\nconst binary = input.binary || {};\nconst entries = [];\nfor (const key of Object.keys(binary)) {\n  const meta = binary[key];\n  const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n  entries.push({ key, meta, buffer });\n}\nconst jsonEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.json'));\nconst mdEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.md'));\nif (!jsonEntry || !mdEntry) throw new Error('Docling ZIP must contain both JSON and Markdown outputs');\n\nconst doc = JSON.parse(jsonEntry.buffer.toString('utf8'));\nlet markdown = mdEntry.buffer.toString('utf8');\nconst imageEntries = entries.filter(e => /\\.(png|jpe?g|webp|gif|tiff?|bmp)$/i.test(e.meta.fileName || ''));\nmarkdown = markdown.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, (_, alt, ref) => {\n  const base = String(ref).replace(/\\\\/g, '/').split('/').pop();\n  return '![' + alt + '](images/' + base + ')';\n});\n\nconst byRef = new Map();\nfor (const collection of ['groups','texts','tables','pictures','key_value_items','form_items']) {\n  for (const item of (doc[collection] || [])) {\n    if (item && item.self_ref) byRef.set(item.self_ref, item);\n  }\n}\nconst pageOf = item => {\n  const p = item && Array.isArray(item.prov) ? item.prov[0] : null;\n  return Number.isInteger(p?.page_no) ? p.page_no : null;\n};\nconst esc = value => String(value ?? '').replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ');\nconst tableMarkdown = table => {\n  const grid = table?.data?.grid;\n  if (!Array.isArray(grid) || grid.length === 0) return '[Table]';\n  const rows = grid.map(row => row.map(cell => esc(cell?.text ?? cell)).join(' | '));\n  const width = Math.max(...grid.map(row => row.length), 1);\n  return '| ' + rows[0] + ' |\\n| ' + Array(width).fill('---').join(' | ') + ' |\\n' +\n    rows.slice(1).map(r => '| ' + r + ' |').join('\\n');\n};\nconst blocks = [];\nlet headings = [];\nconst pushBlock = (item, contentType, text) => {\n  const clean = String(text || '').trim();\n  if (!clean) return;\n  const page = pageOf(item);\n  blocks.push({ text: clean, heading_path: [...headings], page_start: page, page_end: page, content_type: contentType });\n};\nconst visit = refOrItem => {\n  const item = typeof refOrItem === 'string' ? byRef.get(refOrItem) : byRef.get(refOrItem?.$ref) || refOrItem;\n  if (!item) return;\n  const label = item.label || '';\n  if (label === 'title' || label === 'section_header') {\n    const level = Math.max(1, Number(item.level || (label === 'title' ? 1 : headings.length + 1)));\n    headings = headings.slice(0, level - 1);\n    headings[level - 1] = String(item.text || '').trim();\n    pushBlock(item, 'heading', item.text);\n    return;\n  }\n  if (item.data?.grid) pushBlock(item, 'table', tableMarkdown(item));\n  else if (label === 'picture' || item.self_ref?.startsWith('#/pictures/')) {\n    const caption = item.caption_text || item.text || (item.captions || []).map(c => c.text || '').filter(Boolean).join(' ');\n    pushBlock(item, 'image', caption ? '[Image] ' + caption : '[Image]');\n  } else if (item.text) pushBlock(item, label || 'text', item.text);\n  for (const child of (item.children || [])) visit(child);\n};\nfor (const child of (doc.body?.children || [])) visit(child);\n\nif (blocks.length === 0 && markdown.trim()) {\n  blocks.push({text: markdown.trim(), heading_path: [], page_start: null, page_end: null, content_type: 'markdown'});\n}\nconst MAX = 1200;\nconst OVERLAP = 150;\nconst chunks = [];\nconst stableUuid = seed => {\n  const words = [2166136261, 2246822519, 3266489917, 668265263];\n  for (let w = 0; w < words.length; w++) {\n    let h = words[w] >>> 0;\n    for (let i = 0; i < seed.length; i++) {\n      h ^= seed.charCodeAt(i) + w * 31;\n      h = Math.imul(h, 16777619 + w * 2) >>> 0;\n    }\n    words[w] = h;\n  }\n  let hex = words.map(v => v.toString(16).padStart(8, '0')).join('');\n  hex = hex.slice(0, 12) + '5' + hex.slice(13, 16) + ((parseInt(hex[16],16)&3)|8).toString(16) + hex.slice(17);\n  return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20,32);\n};\nlet current = null;\nconst emit = () => {\n  if (!current || !current.text.trim()) return;\n  const index = chunks.length;\n  chunks.push({\n    id: stableUuid(contract.documentId + ':' + index),\n    chunk_id: contract.documentId + ':' + String(index).padStart(6, '0'),\n    document_id: contract.documentId,\n    kb_id: contract.kbId,\n    chunk_index: index,\n    text: current.text.trim(),\n    heading_path: current.heading_path,\n    page_start: current.page_start,\n    page_end: current.page_end,\n    content_type: current.content_type,\n    source_key: contract.sourceKey,\n    source_sha256: contract.sourceSha256,\n    filename: contract.filename\n  });\n};\nfor (const block of blocks) {\n  const sameSection = current && JSON.stringify(current.heading_path) === JSON.stringify(block.heading_path) && current.content_type === block.content_type;\n  if (!sameSection || (current.text.length + block.text.length + 2 > MAX)) {\n    if (current) emit();\n    const carry = sameSection && current ? current.text.slice(-OVERLAP) : '';\n    current = {...block, text: carry ? carry + '\\n\\n' + block.text : block.text};\n  } else {\n    current.text += '\\n\\n' + block.text;\n    if (block.page_start != null) {\n      current.page_start = current.page_start == null ? block.page_start : Math.min(current.page_start, block.page_start);\n      current.page_end = current.page_end == null ? block.page_end : Math.max(current.page_end, block.page_end);\n    }\n  }\n}\nemit();\nif (chunks.length === 0) throw new Error('Docling produced no indexable content');\n\nconst prefix = 'documents/' + contract.kbId + '/' + contract.documentId + '/';\nconst manifest = {\n  schemaVersion: 1,\n  documentId: contract.documentId,\n  kbId: contract.kbId,\n  source: { key: contract.sourceKey, filename: contract.filename, sha256: contract.sourceSha256, mimeType: contract.mimeType },\n  artifacts: {\n    json: prefix + 'extracted/document.json',\n    markdown: prefix + 'extracted/document.md',\n    manifest: prefix + 'extracted/manifest.json',\n    images: imageEntries.map(e => prefix + 'extracted/images/' + (e.meta.fileName || e.key).replace(/^.*[\\\\/]/,'')),\n    chunks: prefix + 'chunks/chunks.json'\n  },\n  chunkCount: chunks.length,\n  createdAt: new Date().toISOString()\n};\nconst makeItem = async (objectKey, kind, buffer, fileName, mimeType, extra={}) => ({\n  json: { documentId: contract.documentId, kbId: contract.kbId, objectKey, kind, ...extra },\n  binary: { data: await this.helpers.prepareBinaryData(buffer, fileName, mimeType) }\n});\nconst output = [];\noutput.push(await makeItem(prefix+'extracted/document.json','docling_json',Buffer.from(JSON.stringify(doc,null,2)),'document.json','application/json'));\noutput.push(await makeItem(prefix+'extracted/document.md','markdown',Buffer.from(markdown),'document.md','text/markdown'));\nfor (const image of imageEntries) {\n  const name = (image.meta.fileName || image.key).replace(/^.*[\\\\/]/,'');\n  output.push(await makeItem(prefix+'extracted/images/'+name,'image',image.buffer,name,image.meta.mimeType || 'application/octet-stream'));\n}\noutput.push(await makeItem(prefix+'extracted/manifest.json','manifest',Buffer.from(JSON.stringify(manifest,null,2)),'manifest.json','application/json'));\noutput.push(await makeItem(prefix+'chunks/chunks.json','chunks',Buffer.from(JSON.stringify(chunks,null,2)),'chunks.json','application/json',{chunks,chunkCount:chunks.length,manifest}));\nreturn output;\n"
+        },
+        "id": "90f11599-4109-48ec-b68a-1ddaca8a0b3b",
+        "name": "Build Artifacts and Chunks",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3760,
+          -160
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "operation": "upload",
+          "bucketName": "rag-documents",
+          "fileName": "={{ $json.objectKey }}",
+          "additionalFields": {}
+        },
+        "id": "9177859e-b3a6-4220-9730-ca3e2c0b1713",
+        "name": "Upload Artifacts",
+        "type": "n8n-nodes-base.s3",
+        "typeVersion": 1,
+        "position": [
+          4000,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "credentials": {
+          "s3": {
+            "id": "bbKhvZGX8F1ThzH4",
+            "name": "Local RAG MinIO"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const uploaded = $input.all();\n\nconst source = $('Build Artifacts and Chunks').all().find(i => i.json.kind === 'chunks');\nif (!source) throw new Error('chunks.json artifact was not produced');\nreturn [{json:{\n  documentId: source.json.documentId,\n  kbId: source.json.kbId,\n  chunks: source.json.chunks,\n  chunkCount: source.json.chunkCount,\n  manifest: source.json.manifest\n}}];\n"
+        },
+        "id": "abb09658-086f-4301-a0c8-71b687ef2187",
+        "name": "Collect Conversion Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          4240,
+          -160
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE rag_documents SET status = 'chunking', chunk_count = $2::integer, artifact_manifest = $3::jsonb, updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'chunking', 'chunking', jsonb_build_object('chunkCount', $2::integer));\nSELECT $1::text AS \"documentId\", $2::integer AS \"chunkCount\";",
+          "options": {
+            "queryReplacement": "={{ [$json.documentId, $json.chunkCount, JSON.stringify($json.manifest)] }}"
+          }
+        },
+        "id": "4d0d3203-b035-45e0-9fb1-606d491ee6cc",
+        "name": "Mark Chunked",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          4480,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "8d6013b7-68c3-4f33-bac5-60f611de983f",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $('Collect Conversion Result').first().json.documentId }}"
+              },
+              {
+                "id": "128de095-d0d7-4079-9235-e928dfe16f2d",
+                "name": "kbId",
+                "type": "string",
+                "value": "={{ $('Collect Conversion Result').first().json.kbId }}"
+              },
+              {
+                "id": "5a0bc747-3d12-4eca-b9e1-64253c78ab3c",
+                "name": "chunks",
+                "type": "array",
+                "value": "={{ $('Collect Conversion Result').first().json.chunks }}"
+              },
+              {
+                "id": "dbfc9155-366a-4fb8-9293-a6f738e478cb",
+                "name": "chunkCount",
+                "type": "number",
+                "value": "={{ $('Collect Conversion Result').first().json.chunkCount }}"
+              },
+              {
+                "id": "82f5b7ee-1977-43ef-b74c-f7bef7e2e725",
+                "name": "manifest",
+                "type": "object",
+                "value": "={{ $('Collect Conversion Result').first().json.manifest }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "2fed1f06-2cf6-4720-8074-a0978a126c41",
+        "name": "Return Conversion",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          4720,
+          -160
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE rag_documents SET status = 'embedding', updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'embedding', 'ollama', jsonb_build_object('chunkCount', $2::integer));\nSELECT $1::text AS \"documentId\";",
+          "options": {
+            "queryReplacement": "={{ [$json.documentId, $json.chunks.length] }}"
+          }
+        },
+        "id": "a8cc3987-f0e6-424f-9611-1a321e3e8ff3",
+        "name": "Mark Embedding",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          4960,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://ollama:11434/api/embed",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ model: 'nomic-embed-text', input: $('Return Conversion').first().json.chunks.map(c => c.text), truncate: true }) }}",
+          "options": {
+            "timeout": 600000
+          }
+        },
+        "id": "1bf1ee65-b154-4543-b056-29b808fec0b2",
+        "name": "Generate Embeddings",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          5200,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "\nconst contract = $('Return Conversion').first().json;\nconst response = $input.first().json;\nconst chunks = contract.chunks;\nconst embeddings = response.embeddings;\nif (!Array.isArray(chunks) || chunks.length === 0) throw new Error('No chunks supplied for indexing');\nif (!Array.isArray(embeddings) || embeddings.length !== chunks.length) {\n  throw new Error('Ollama embedding count does not match chunk count');\n}\nconst points = chunks.map((chunk, index) => {\n  const vector = embeddings[index];\n  if (!Array.isArray(vector) || vector.length !== 768) {\n    throw new Error('Embedding dimension must be 768 for chunk ' + index);\n  }\n  return {\n    id: chunk.id,\n    vector,\n    payload: {\n      document_id: chunk.document_id,\n      kb_id: chunk.kb_id,\n      chunk_id: chunk.chunk_id,\n      chunk_index: chunk.chunk_index,\n      text: chunk.text,\n      heading_path: chunk.heading_path || [],\n      page_start: chunk.page_start,\n      page_end: chunk.page_end,\n      content_type: chunk.content_type,\n      source_key: chunk.source_key,\n      source_sha256: chunk.source_sha256,\n      filename: chunk.filename\n    }\n  };\n});\nreturn [{json:{documentId:contract.documentId,kbId:contract.kbId,chunkCount:chunks.length,points}}];\n"
+        },
+        "id": "86042161-f9b5-4b8c-849f-8994d25402fa",
+        "name": "Build Vector Points",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          5440,
+          -160
+        ],
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://qdrant:6333/collections/rag_chunks/points/delete?wait=true",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "qdrantApi",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ filter: { must: [{ key: 'document_id', match: { value: $json.documentId } }] } }) }}",
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "531b3be9-254d-431c-bc71-18bf33acba1d",
+        "name": "Delete Previous Vectors",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          5680,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "credentials": {
+          "qdrantApi": {
+            "id": "RxQ7256kohP8jsgH",
+            "name": "Local RAG Qdrant"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "PUT",
+          "url": "http://qdrant:6333/collections/rag_chunks/points?wait=true",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "qdrantApi",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ points: $('Build Vector Points').first().json.points }) }}",
+          "options": {
+            "timeout": 300000
+          }
+        },
+        "id": "afe2a87a-b01f-4202-8c8c-47e1513672fa",
+        "name": "Upsert Vectors",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          5920,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "credentials": {
+          "qdrantApi": {
+            "id": "RxQ7256kohP8jsgH",
+            "name": "Local RAG Qdrant"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE rag_documents SET status = 'indexed', chunk_count = $2::integer, indexed_at = now(), error_code = NULL, error_message = NULL, error_details = NULL, updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'indexed', 'qdrant', jsonb_build_object('chunkCount', $2::integer, 'collection', 'rag_chunks'));\nSELECT $1::text AS \"documentId\", $2::integer AS \"chunkCount\", 'indexed'::text AS status;",
+          "options": {
+            "queryReplacement": "={{ [$('Build Vector Points').first().json.documentId, $('Build Vector Points').first().json.chunkCount] }}"
+          }
+        },
+        "id": "c039b928-1521-41ce-9a9f-9b5b5b565059",
+        "name": "Mark Indexed",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          6160,
+          -160
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "a6cb01e1-5e8e-46b4-850e-db1d441a15bb",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $json.documentId }}"
+              },
+              {
+                "id": "c8ae6e15-4e5c-4a17-ab46-fb6fa9fd73a7",
+                "name": "kbId",
+                "type": "string",
+                "value": "={{ $('Build Vector Points').first().json.kbId }}"
+              },
+              {
+                "id": "1316346a-3cc0-405d-a4ac-de4106a1b15b",
+                "name": "status",
+                "type": "string",
+                "value": "indexed"
+              },
+              {
+                "id": "e87395a0-3bb3-4351-88e7-0dd0257759b9",
+                "name": "chunkCount",
+                "type": "number",
+                "value": "={{ $json.chunkCount }}"
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000021",
+                "name": "requestSource",
+                "type": "string",
+                "value": "={{ $('Claim Document').first().json.requestSource }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "ca63bc1d-f279-47ed-9bab-cbd12450164e",
+        "name": "Return Indexed State",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          6400,
+          -160
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "5cf50171-4ba4-45a2-baac-4fb2a1b4771a",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $json.documentId }}"
+              },
+              {
+                "id": "e84bbb7f-7425-4810-af93-edc21377cab6",
+                "name": "stage",
+                "type": "string",
+                "value": "conversion"
+              },
+              {
+                "id": "0ba51562-3228-4848-a54e-53aef7c7b65f",
+                "name": "errorCode",
+                "type": "string",
+                "value": "DOCLING_OR_CHUNKING_FAILED"
+              },
+              {
+                "id": "f7abed35-b2d5-46b9-9758-787a8da08927",
+                "name": "errorMessage",
+                "type": "string",
+                "value": "={{ ($json.error && $json.error.message) || $json.message || 'Conversion failed' }}"
+              },
+              {
+                "id": "5e7757a7-d1ae-4721-869a-6f568e51278b",
+                "name": "errorDetails",
+                "type": "object",
+                "value": "={{ $json }}"
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000022",
+                "name": "requestSource",
+                "type": "string",
+                "value": "={{ $('RAG API').isExecuted ? 'webhook' : 'folder' }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "8f1b825b-3bc7-4dfa-9bda-e129912a3440",
+        "name": "Normalize Conversion Failure",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          4208,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "7a5d6f1c-24ad-4103-b81d-2aa1aa78863e",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $json.documentId }}"
+              },
+              {
+                "id": "7f8b1743-9065-4c96-aa45-0ae21e1b26e3",
+                "name": "stage",
+                "type": "string",
+                "value": "indexing"
+              },
+              {
+                "id": "ee9e203a-6cf2-4725-af77-a51428ad10a5",
+                "name": "errorCode",
+                "type": "string",
+                "value": "EMBEDDING_OR_INDEX_FAILED"
+              },
+              {
+                "id": "5c138300-a6fd-42ef-9144-f0d3f5644b2a",
+                "name": "errorMessage",
+                "type": "string",
+                "value": "={{ ($json.error && $json.error.message) || $json.message || 'Indexing failed' }}"
+              },
+              {
+                "id": "d093eb2a-78db-4a39-956f-49ef5795f659",
+                "name": "errorDetails",
+                "type": "object",
+                "value": "={{ $json }}"
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000023",
+                "name": "requestSource",
+                "type": "string",
+                "value": "={{ $('RAG API').isExecuted ? 'webhook' : 'folder' }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "1e52e118-69b0-44f9-ad86-cf3684fc50a7",
+        "name": "Normalize Index Failure",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          5712,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE rag_documents\n  SET status = 'failed',\n      error_stage = $2,\n      error_code = $3,\n      error_message = left($4, 2000),\n      error_details = $5::jsonb,\n      updated_at = now()\n  WHERE id = $1::uuid\n  RETURNING id, kb_id, status, error_stage, error_code, error_message, error_details, updated_at\n), event AS (\n  INSERT INTO rag_document_events (document_id, status, stage, message, details, execution_id)\n  SELECT id, 'failed', error_stage, error_message, error_details, $6\n  FROM updated\n)\nSELECT id::text AS \"documentId\",\n       kb_id::text AS \"kbId\",\n       status,\n       error_stage AS \"errorStage\",\n       error_code AS \"errorCode\",\n       error_message AS \"errorMessage\",\n       updated_at AS \"updatedAt\"\nFROM updated;",
+          "options": {
+            "queryBatching": "single",
+            "queryReplacement": "={{ [$json.documentId, $json.stage, $json.errorCode || 'processing_error', $json.errorMessage || 'Document processing failed', JSON.stringify($json.errorDetails || {}), $execution.id] }}"
+          }
+        },
+        "id": "ddf056a5-8108-445f-93c0-c309c6769f68",
+        "name": "Persist Failure",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          6192,
+          224
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "741bdd99-48d5-4d38-8f97-0bbb4d92080c",
+                "name": "ok",
+                "value": false,
+                "type": "boolean"
+              },
+              {
+                "id": "436b510d-0fa9-47e7-aa68-121a44b02c83",
+                "name": "documentId",
+                "value": "={{ $json.documentId }}",
+                "type": "string"
+              },
+              {
+                "id": "7242d86e-cd46-4515-aa75-054e4bcae100",
+                "name": "status",
+                "value": "={{ $json.status }}",
+                "type": "string"
+              },
+              {
+                "id": "25745929-18e6-409b-9877-0046d96f4a48",
+                "name": "errorStage",
+                "value": "={{ $json.errorStage }}",
+                "type": "string"
+              },
+              {
+                "id": "111b7634-fba0-44a0-a188-fd89aa23fada",
+                "name": "errorCode",
+                "value": "={{ $json.errorCode }}",
+                "type": "string"
+              },
+              {
+                "id": "bd28a670-8efb-4bb3-a13d-c7625b20238c",
+                "name": "errorMessage",
+                "value": "={{ $json.errorMessage }}",
+                "type": "string"
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000024",
+                "name": "requestSource",
+                "type": "string",
+                "value": "={{ $json.requestSource || 'internal' }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "66e56d51-16bb-4431-babe-bf540f1b44af",
+        "name": "Return Failure State",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          6432,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nreturn [{json:{\n  ok: true,\n  action: 'ingest',\n  documentId: d.documentId,\n  kbId: d.kbId || null,\n  status: d.status,\n  chunkCount: Number(d.chunkCount || 0),\n  skipped: Boolean(d.skipped),\n  requestSource: d.requestSource || 'internal'\n}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000025",
+        "name": "Format Ingestion Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          6640,
+          -160
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nreturn [{json:{\n  ok: false,\n  action: 'ingest',\n  documentId: d.documentId || null,\n  status: d.status || 'failed',\n  error: { stage: d.errorStage || d.stage || 'ingestion', code: d.errorCode || 'INGESTION_FAILED', message: d.errorMessage || d.message || d.error?.message || 'Ingestion failed' },\n  requestSource: d.requestSource || 'internal'\n}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000026",
+        "name": "Format Ingestion Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          6672,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "10000000-0000-4000-8000-000000000027",
+                "leftValue": "={{ $json.requestSource }}",
+                "rightValue": "webhook",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000028",
+        "name": "Return Ingestion to Webhook?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          6912,
+          -160
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "10000000-0000-4000-8000-000000000029",
+                "leftValue": "={{ $json.requestSource }}",
+                "rightValue": "webhook",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000030",
+        "name": "Return Failure to Webhook?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          6912,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "responseCode": 200,
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000031",
+        "name": "Respond Ingestion",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          7168,
+          -160
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "responseCode": 500,
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000032",
+        "name": "Respond Ingestion Failure",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          7168,
+          224
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://ollama:11434/api/embed",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ model: 'nomic-embed-text', input: [$('Normalize and Validate Request').first().json.query], truncate: true }) }}",
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000033",
+        "name": "Embed User Query",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          864,
+          992
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://qdrant:6333/collections/rag_chunks/points/query",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "qdrantApi",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ query: $json.embeddings[0], filter: { must: [{ key: 'kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } }] }, limit: $('Normalize and Validate Request').first().json.topK, with_payload: true, with_vector: false, score_threshold: 0.2 }) }}",
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000034",
+        "name": "Search Qdrant",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1120,
+          992
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "credentials": {
+          "qdrantApi": {
+            "id": "RxQ7256kohP8jsgH",
+            "name": "Local RAG Qdrant"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst request = $('Normalize and Validate Request').first().json;\nconst points = Array.isArray(response?.result?.points) ? response.result.points : (Array.isArray(response?.result) ? response.result : []);\nconst sources = points.map((point, index) => {\n  const p = point.payload || {};\n  return {\n    id: 'S' + (index + 1),\n    score: Number(point.score || 0),\n    documentId: p.document_id || null,\n    chunkId: p.chunk_id || null,\n    filename: p.filename || 'unknown',\n    pageStart: p.page_start ?? null,\n    pageEnd: p.page_end ?? null,\n    headingPath: Array.isArray(p.heading_path) ? p.heading_path : [],\n    sourceKey: p.source_key || null,\n    text: String(p.text || '')\n  };\n});\nconst context = sources.length\n  ? sources.map(s => '[' + s.id + '] ' + s.filename + (s.pageStart != null ? ' page ' + s.pageStart : '') + '\\n' + s.text).join('\\n\\n')\n  : '(No matching context was retrieved.)';\nconst system = [\n  'You are a local retrieval-grounded assistant.',\n  'Answer only from the supplied context.',\n  'Cite factual claims using the provided source IDs such as [S1].',\n  'If the context is insufficient, say that the indexed documents do not contain enough information.',\n  'Do not invent sources, filenames, page numbers, or facts.',\n  'Keep the answer concise and useful.'\n].join(' ');\nreturn [{json:{query:request.query,kbId:request.kbId,model:'qwen3:4b',sources,context,system}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000035",
+        "name": "Assemble Grounded Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1392,
+          992
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://ollama:11434/api/chat",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ model: $json.model, stream: false, think: false, messages: [{ role: 'system', content: $json.system }, { role: 'user', content: 'Question:\\n' + $json.query + '\\n\\nContext:\\n' + $json.context }], options: { temperature: 0.1, num_ctx: 2048 } }) }}",
+          "options": {
+            "timeout": 600000
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000036",
+        "name": "Generate Grounded Answer",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1648,
+          992
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 2000,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst context = $('Assemble Grounded Context').first().json;\nconst rawAnswer = String(response?.message?.content || response?.response || '').trim();\nconst answer = rawAnswer.includes('</think>') ? rawAnswer.split('</think>').pop().trim() : rawAnswer;\nreturn [{json:{\n  ok: true,\n  action: 'query',\n  query: context.query,\n  answer: answer || 'The local model returned an empty answer.',\n  sources: context.sources.map(({text, ...source}) => source),\n  retrieval: { type: 'vector', resultCount: context.sources.length, collection: 'rag_chunks' },\n  model: context.model\n}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000037",
+        "name": "Format Answer with Sources",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1904,
+          992
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "responseCode": 200,
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000038",
+        "name": "Respond Query",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          2160,
+          992
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d=$input.first().json; return [{json:{ok:false,action:'query',error:{code:'RETRIEVAL_FAILED',message:d.error?.message||d.message||'Retrieval or generation failed'}}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000039",
+        "name": "Format Retrieval Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1648,
+          1248
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "responseCode": 502,
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000040",
+        "name": "Respond Retrieval Failure",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1936,
+          1328
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://qdrant:6333/collections/rag_chunks/points/delete?wait=true",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "qdrantApi",
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ JSON.stringify({ filter: { must: [ $('Normalize and Validate Request').first().json.documentId ? { key: 'document_id', match: { value: $('Normalize and Validate Request').first().json.documentId } } : { key: 'kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } } ] } }) }}",
+          "options": {
+            "timeout": 120000
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000041",
+        "name": "Delete Reset Vectors",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          864,
+          1792
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1500,
+        "credentials": {
+          "qdrantApi": {
+            "id": "RxQ7256kohP8jsgH",
+            "name": "Local RAG Qdrant"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (\n  UPDATE rag_documents\n  SET status = 'pending',\n      chunk_count = 0,\n      indexed_at = NULL,\n      error_stage = NULL,\n      error_code = NULL,\n      error_message = NULL,\n      error_details = NULL,\n      updated_at = now()\n  WHERE (NULLIF($1::text, '') IS NOT NULL AND id = NULLIF($1::text, '')::uuid)\n     OR (NULLIF($1::text, '') IS NULL AND kb_id = $2::uuid)\n  RETURNING id, kb_id\n), events AS (\n  INSERT INTO rag_document_events(document_id, status, stage, message, details, execution_id)\n  SELECT id, 'pending', 'admin_reset', 'Vectors removed; source artifacts preserved', '{}'::jsonb, $3::text\n  FROM updated\n)\nSELECT count(*)::integer AS \"resetCount\",\n       COALESCE(array_agg(id::text), ARRAY[]::text[]) AS \"documentIds\",\n       $4::boolean AS reprocess,\n       'webhook'::text AS \"requestSource\"\nFROM updated;",
+          "options": {
+            "queryBatching": "single",
+            "queryReplacement": "={{ [$('Normalize and Validate Request').first().json.documentId, $('Normalize and Validate Request').first().json.kbId, $execution.id, $('Normalize and Validate Request').first().json.reprocess] }}"
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000042",
+        "name": "Reset Document State",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1120,
+          1792
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 1000,
+        "credentials": {
+          "postgres": {
+            "id": "7UPITeZ6Fa10t1Gg",
+            "name": "Local RAG PostgreSQL"
+          }
+        },
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "10000000-0000-4000-8000-000000000043",
+                "leftValue": "={{ $json.reprocess && $json.resetCount === 1 }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000044",
+        "name": "Reprocess After Reset?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1392,
+          1792
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "10000000-0000-4000-8000-000000000045",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $json.documentIds[0] }}"
+              },
+              {
+                "id": "10000000-0000-4000-8000-000000000046",
+                "name": "requestSource",
+                "type": "string",
+                "value": "webhook"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000047",
+        "name": "Pass Reset Document",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          1648,
+          1664
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d=$input.first().json; return [{json:{ok:true,action:'reset',resetCount:Number(d.resetCount||0),documentIds:d.documentIds||[],artifactsPreserved:true}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000048",
+        "name": "Format Reset Result",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1648,
+          1904
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "responseCode": 200,
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000049",
+        "name": "Respond Reset",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1904,
+          1904
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d=$input.first().json; return [{json:{ok:false,action:'reset',error:{code:'RESET_FAILED',message:d.error?.message||d.message||'Reset failed'}}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000050",
+        "name": "Format Reset Failure",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1392,
+          2112
+        ]
+      },
+      {
+        "parameters": {
+          "options": {
+            "responseCode": 500,
+            "enableStreaming": false
+          }
+        },
+        "id": "10000000-0000-4000-8000-000000000051",
+        "name": "Respond Reset Failure",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1648,
+          2112
+        ]
+      },
+      {
+        "parameters": {},
+        "id": "10000000-0000-4000-8000-000000000052",
+        "name": "No Inbox Files",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          528,
+          -448
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "10000000-0000-4000-8000-000000000054",
+                "leftValue": "={{ $json.sources.length > 0 }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "10000000-0000-4000-8000-000000000053",
+        "name": "Context Found?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1632,
+          992
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d=$input.first().json; return [{json:{ok:true,action:'query',query:d.query,answer:'The indexed documents do not contain enough information to answer this question.',sources:[],retrieval:{type:'vector',resultCount:0,collection:'rag_chunks'},model:null}}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000055",
+        "name": "Format No Context Answer",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1904,
+          1168
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const merged=$input.first();\nlet source=null;\ntry { source=$('Normalize and Validate Request').first(); } catch {}\nif (!source?.binary?.data) {\n  try { source=$('Prepare Watched File').first(); } catch {}\n}\nif (!source?.binary?.data) throw new Error('Intake source binary is unavailable');\nreturn [{json:merged.json,binary:source.binary}];"
+        },
+        "id": "10000000-0000-4000-8000-000000000056",
+        "name": "Restore Upload Binary",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1712,
+          -80
+        ]
+      }
+    ],
+    "connections": {
+      "RAG API": {
+        "main": [
+          [
+            {
+              "node": "Normalize and Validate Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize and Validate Request": {
+        "main": [
+          [
+            {
+              "node": "Route Action",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Action": {
+        "main": [
+          [
+            {
+              "node": "Hash Source File",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Embed User Query",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Delete Reset Vectors",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond Invalid Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Watch Local Inbox": {
+        "main": [
+          [
+            {
+              "node": "Read Watched File",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read Watched File": {
+        "main": [
+          [
+            {
+              "node": "Prepare Watched File",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "No Inbox Files",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Watched File": {
+        "main": [
+          [
+            {
+              "node": "Hash Source File",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Hash Source File": {
+        "main": [
+          [
+            {
+              "node": "Register Document",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Merge Upload Context",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "Register Document": {
+        "main": [
+          [
+            {
+              "node": "Merge Upload Context",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Ingestion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upload Source to MinIO": {
+        "main": [
+          [
+            {
+              "node": "Pass Registered Document",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pass Registered Document": {
+        "main": [
+          [
+            {
+              "node": "Claim Document",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Claim Document": {
+        "main": [
+          [
+            {
+              "node": "Should Process",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Should Process": {
+        "main": [
+          [
+            {
+              "node": "Mark Extracting",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Return Existing State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Extracting": {
+        "main": [
+          [
+            {
+              "node": "Download Source",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Download Source": {
+        "main": [
+          [
+            {
+              "node": "Restore Source Metadata",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Restore Source Metadata": {
+        "main": [
+          [
+            {
+              "node": "Docling Convert",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Docling Convert": {
+        "main": [
+          [
+            {
+              "node": "Decompress Docling ZIP",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decompress Docling ZIP": {
+        "main": [
+          [
+            {
+              "node": "Build Artifacts and Chunks",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Artifacts and Chunks": {
+        "main": [
+          [
+            {
+              "node": "Upload Artifacts",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upload Artifacts": {
+        "main": [
+          [
+            {
+              "node": "Collect Conversion Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Collect Conversion Result": {
+        "main": [
+          [
+            {
+              "node": "Mark Chunked",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Chunked": {
+        "main": [
+          [
+            {
+              "node": "Return Conversion",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Conversion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Conversion": {
+        "main": [
+          [
+            {
+              "node": "Mark Embedding",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Embedding": {
+        "main": [
+          [
+            {
+              "node": "Generate Embeddings",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generate Embeddings": {
+        "main": [
+          [
+            {
+              "node": "Build Vector Points",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Vector Points": {
+        "main": [
+          [
+            {
+              "node": "Delete Previous Vectors",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Delete Previous Vectors": {
+        "main": [
+          [
+            {
+              "node": "Upsert Vectors",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Upsert Vectors": {
+        "main": [
+          [
+            {
+              "node": "Mark Indexed",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Indexed": {
+        "main": [
+          [
+            {
+              "node": "Return Indexed State",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Conversion Failure": {
+        "main": [
+          [
+            {
+              "node": "Persist Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalize Index Failure": {
+        "main": [
+          [
+            {
+              "node": "Persist Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Persist Failure": {
+        "main": [
+          [
+            {
+              "node": "Return Failure State",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Ingestion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Indexed State": {
+        "main": [
+          [
+            {
+              "node": "Format Ingestion Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Existing State": {
+        "main": [
+          [
+            {
+              "node": "Format Ingestion Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Ingestion Result": {
+        "main": [
+          [
+            {
+              "node": "Return Ingestion to Webhook?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Ingestion to Webhook?": {
+        "main": [
+          [
+            {
+              "node": "Respond Ingestion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Failure State": {
+        "main": [
+          [
+            {
+              "node": "Format Ingestion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Ingestion Failure": {
+        "main": [
+          [
+            {
+              "node": "Return Failure to Webhook?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Failure to Webhook?": {
+        "main": [
+          [
+            {
+              "node": "Respond Ingestion Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Embed User Query": {
+        "main": [
+          [
+            {
+              "node": "Search Qdrant",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Retrieval Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Qdrant": {
+        "main": [
+          [
+            {
+              "node": "Assemble Grounded Context",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Retrieval Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Generate Grounded Answer": {
+        "main": [
+          [
+            {
+              "node": "Format Answer with Sources",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Retrieval Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Answer with Sources": {
+        "main": [
+          [
+            {
+              "node": "Respond Query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Retrieval Failure": {
+        "main": [
+          [
+            {
+              "node": "Respond Retrieval Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Delete Reset Vectors": {
+        "main": [
+          [
+            {
+              "node": "Reset Document State",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Reset Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Reset Document State": {
+        "main": [
+          [
+            {
+              "node": "Reprocess After Reset?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Reset Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Reprocess After Reset?": {
+        "main": [
+          [
+            {
+              "node": "Pass Reset Document",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Reset Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Pass Reset Document": {
+        "main": [
+          [
+            {
+              "node": "Claim Document",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Reset Result": {
+        "main": [
+          [
+            {
+              "node": "Respond Reset",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Reset Failure": {
+        "main": [
+          [
+            {
+              "node": "Respond Reset Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Assemble Grounded Context": {
+        "main": [
+          [
+            {
+              "node": "Context Found?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Context Found?": {
+        "main": [
+          [
+            {
+              "node": "Generate Grounded Answer",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format No Context Answer",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format No Context Answer": {
+        "main": [
+          [
+            {
+              "node": "Respond Query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Merge Upload Context": {
+        "main": [
+          [
+            {
+              "node": "Restore Upload Binary",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Restore Upload Binary": {
+        "main": [
+          [
+            {
+              "node": "Upload Source to MinIO",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "timezone": "Asia/Kuala_Lumpur",
+      "saveDataErrorExecution": "all",
+      "saveDataSuccessExecution": "all",
+      "saveManualExecutions": true,
+      "saveExecutionProgress": true,
+      "executionTimeout": 1800,
+      "binaryMode": "separate"
+    },
+    "staticData": {
+      "node:Watch Local Inbox": {
+        "recurrenceRules": []
+      }
+    },
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "bbf6f6bc-7021-41eb-817e-682a0462813d",
+    "activeVersionId": "246c23bd-2a21-4d3b-a686-6f1c4535b7f5",
+    "versionCounter": 13,
+    "triggerCount": 2,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-06-24T17:52:45.948Z",
+        "createdAt": "2026-06-24T17:52:45.948Z",
+        "role": "workflow:owner",
+        "workflowId": "M1oNSxViwXJpX7w2",
+        "projectId": "Qaf01ThR7y4VFv0a",
+        "project": {
+          "updatedAt": "2026-06-24T07:27:18.714Z",
+          "createdAt": "2026-06-24T06:58:00.072Z",
+          "id": "Qaf01ThR7y4VFv0a",
+          "name": "Hat LikesApples <fattahhj123@gmail.com>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "21071879-a421-4bc1-91a2-a93818d7c13e"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]

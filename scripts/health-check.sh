@@ -7,7 +7,7 @@ set -a
 set +a
 
 compose=(--env-file .env -f docker-compose.yml -f compose.dev.yml)
-services=(postgres redis minio qdrant ollama docling n8n n8n-worker caddy)
+services=(postgres redis minio qdrant ollama docling n8n n8n-worker frontend caddy)
 
 for service in "${services[@]}"; do
   container_id="$(docker compose "${compose[@]}" ps -q "$service")"
@@ -25,4 +25,3 @@ curl -fsS "http://127.0.0.1:${OLLAMA_PORT}/api/tags" >/dev/null
 curl -fsS -H "api-key: ${QDRANT_API_KEY}" "http://127.0.0.1:${QDRANT_HTTP_PORT}/collections" >/dev/null
 
 echo 'All Phase 2 service health checks passed.'
-
