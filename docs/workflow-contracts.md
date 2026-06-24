@@ -1,31 +1,29 @@
 # Workflow Contracts
 
-# Workflow Contracts
-
 Schemas belong in `n8n/schemas/` and must be updated before dependent frontend or workflow
 changes.
 
-## Document ingestion
+## Phase 4 RAG API
 
-`POST /webhook/v1/documents/ingest` accepts `multipart/form-data`:
+`POST /webhook/rag` accepts `application/json` or `multipart/form-data`.
 
-- `file`: required file in the webhook binary field named `file`.
-- `kbId`: required knowledge-base UUID.
-- `force`: optional boolean. When true, reprocesses an existing document with the same SHA-256.
+Supported actions:
 
-Accepted extensions are PDF, DOCX, PPTX, XLSX, HTML, Markdown, PNG, JPEG, TIFF, BMP, and
-WebP. The default maximum upload size is 25 MiB.
+- `ingest`: multipart file field `file` preferred, legacy `data` also accepted; optional `kbId` and `force`.
+- `query`: include `query` or `message`; optional `kbId` and `topK` from 1 to 12.
+- `reset`: include `confirm=RESET` and either `documentId` or `kbId`.
+- `reprocess`: include `confirm=RESET` and `documentId`.
 
-A new or requeued document returns HTTP 202. An already indexed duplicate returns HTTP 200
-without creating another document or another set of vectors. Validation failures return HTTP
-400 with a stable error code.
+The default knowledge base is `00000000-0000-4000-8000-000000000001`. Uploads are limited
+to 25 MiB.
 
-## Processing status
+The workflow returns structured JSON for:
 
-`GET /webhook/v1/documents/:documentId/status` returns the current lifecycle state, artifact
-manifest, chunk count, timestamps, and sanitized failure details.
+- ingestion success, duplicate detection, and validation failures
+- grounded retrieval answers with source metadata
+- reset and reprocess results
 
-Lifecycle:
+## Lifecycle
 
 ```text
 pending -> processing -> extracting -> chunking -> embedding -> indexed
@@ -51,6 +49,6 @@ are normalized to paths relative to `extracted/document.md`.
 
 ## Deferred boundaries
 
-- Knowledge-base administration: Phase 5/6 contract work.
-- RAG chat: Phase 5.
-- Private artifact access: Phase 6.
+- BM25 and a separate reranker remain deferred.
+- Knowledge-base administration is still handled outside this workflow.
+- Private artifact access remains out of scope.

@@ -29,6 +29,7 @@ x-n8n-common: &n8n-common
     TZ: ${GENERIC_TIMEZONE:-Etc/UTC}
   volumes:
     - n8n_data:/home/node/.n8n
+    - ./data/inbox:/files/inbox
   networks:
     - backend
   depends_on:
