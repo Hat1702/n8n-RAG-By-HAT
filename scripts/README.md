@@ -6,5 +6,7 @@
 - `export-workflows.*`: export separate workflow JSON files without credential secrets.
 - `import-workflows.*`: import repository workflows as inactive drafts by default.
 - `configure-codex-n8n.ps1`: securely forward the n8n API key through the user-level Codex environment.
+- `configure-local-n8n-credentials.mjs`: create local Postgres, MinIO, Qdrant, and Ollama credentials without printing secrets.
+- `initialize-rag.*`: apply the ingestion schema and create the 768-dimensional Qdrant collection plus payload indexes.
 
 Backup, restore, and production VPS deployment automation is completed in Phase 7.

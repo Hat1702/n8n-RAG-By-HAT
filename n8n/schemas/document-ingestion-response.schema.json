@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-rag.test/schemas/document-ingestion-response.schema.json",
+  "title": "Document ingestion response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["documentId", "kbId", "status", "duplicate", "statusPath"],
+  "properties": {
+    "documentId": { "type": "string", "format": "uuid" },
+    "kbId": { "type": "string", "format": "uuid" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "processing", "extracting", "chunking", "embedding", "indexed", "failed"]
+    },
+    "duplicate": { "type": "boolean" },
+    "statusPath": { "type": "string" }
+  }
+}

@@ -13,3 +13,7 @@ Credentials and execution data must never be committed.
 Use `scripts/export-workflows.*` for backup snapshots and `scripts/import-workflows.*` for
 version-controlled imports. Imports are inactive by default and must pass validation before
 publishing.
+
+Phase 4 ingestion workflows use the stable HTTP contracts in `schemas/`, PostgreSQL lifecycle
+tables from `infra/postgres/migrations/`, private MinIO object keys, Docling ZIP artifacts,
+batched Ollama embeddings, and explicit Qdrant payloads.

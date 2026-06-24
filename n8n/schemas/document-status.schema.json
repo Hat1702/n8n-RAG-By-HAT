@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local-rag.test/schemas/document-status.schema.json",
+  "title": "Document processing status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["documentId", "kbId", "filename", "status", "chunkCount", "createdAt", "updatedAt"],
+  "properties": {
+    "documentId": { "type": "string", "format": "uuid" },
+    "kbId": { "type": "string", "format": "uuid" },
+    "filename": { "type": "string" },
+    "mimeType": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "processing", "extracting", "chunking", "embedding", "indexed", "failed"]
+    },
+    "chunkCount": { "type": "integer", "minimum": 0 },
+    "artifactManifest": { "type": "object" },
+    "error": {
+      "type": ["object", "null"],
+      "properties": {
+        "stage": { "type": ["string", "null"] },
+        "code": { "type": ["string", "null"] },
+        "message": { "type": ["string", "null"] }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "indexedAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}
