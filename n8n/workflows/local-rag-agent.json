@@ -2,92 +2,11 @@
   {
     "updatedAt": "2026-06-24T18:21:02.787Z",
     "createdAt": "2026-06-24T17:52:45.948Z",
-    "id": "M1oNSxViwXJpX7w2",
-    "name": "Phase 4: Single-Canvas Local RAG",
+    "name": "Local RAG Agent - Single Canvas",
     "description": null,
-    "active": true,
+    "active": false,
     "isArchived": false,
     "nodes": [
-      {
-        "parameters": {
-          "content": "## Single local RAG entrypoint\nPOST `/webhook/rag`\n\nActions:\n- `ingest`: multipart file field `file` (legacy `data` also accepted)\n- `query`: `query`, optional `kbId`, `topK`\n- `reset`: `confirm: RESET` plus `documentId` or `kbId`\n- `reprocess`: `confirm: RESET` plus `documentId`\n\nDefault KB: `00000000-0000-4000-8000-000000000001`\nMax upload: 25 MiB.",
-          "height": 500,
-          "width": 1450,
-          "color": 5
-        },
-        "id": "10000000-0000-4000-8000-000000000001",
-        "name": "00 - API Contract",
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "position": [
-          -304,
-          -304
-        ]
-      },
-      {
-        "parameters": {
-          "content": "## Folder monitoring\nEvery five minutes the schedule polls `/files/inbox/*`.\nThe same hash, deduplication, MinIO, Docling, embedding, and indexing path is used.\nBoth n8n main and worker containers mount the same host folder.",
-          "height": 420,
-          "width": 1450,
-          "color": 4
-        },
-        "id": "10000000-0000-4000-8000-000000000002",
-        "name": "10 - Folder Intake",
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "position": [
-          -304,
-          -896
-        ]
-      },
-      {
-        "parameters": {
-          "content": "## Ingestion lifecycle\nValidate -> SHA-256 -> register/idempotency -> MinIO -> Docling -> semantic chunks -> Ollama embeddings -> Qdrant -> PostgreSQL indexed state.\n\nThe formerly separate ingestion workflows are inlined here so this workflow exports as one portable file.",
-          "height": 900,
-          "width": 3600,
-          "color": 3
-        },
-        "id": "10000000-0000-4000-8000-000000000003",
-        "name": "20 - Ingestion",
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "position": [
-          1200,
-          -304
-        ]
-      },
-      {
-        "parameters": {
-          "content": "## Grounded retrieval\nNormalize query -> same Ollama embedding model -> Qdrant semantic search filtered by KB -> context/source assembly -> Ollama chat -> answer + sources.\n\nVector retrieval is implemented now. BM25 and a separate reranker are intentionally deferred because the current local stack has neither a lexical index nor reranker service.",
-          "height": 700,
-          "width": 3600,
-          "color": 6
-        },
-        "id": "10000000-0000-4000-8000-000000000004",
-        "name": "30 - Retrieval",
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "position": [
-          -304,
-          800
-        ]
-      },
-      {
-        "parameters": {
-          "content": "## Safe reset and reprocess\nReset deletes matching Qdrant points and returns PostgreSQL documents to `pending`.\nMinIO source/artifacts are preserved.\n`reprocess` performs the reset and then enters the ingestion pipeline using the stored source.",
-          "height": 650,
-          "width": 3200,
-          "color": 2
-        },
-        "id": "10000000-0000-4000-8000-000000000005",
-        "name": "40 - Admin Reset",
-        "type": "n8n-nodes-base.stickyNote",
-        "typeVersion": 1,
-        "position": [
-          -304,
-          1600
-        ]
-      },
       {
         "parameters": {
           "httpMethod": "POST",
@@ -101,7 +20,7 @@
         "typeVersion": 2.1,
         "position": [
           0,
-          0
+          -560
         ],
         "webhookId": "19a49d84-397f-4e27-a40c-667efe721d9b",
         "onError": "continueRegularOutput"
@@ -115,8 +34,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          272,
-          0
+          280,
+          -560
         ]
       },
       {
@@ -129,8 +48,8 @@
         "type": "n8n-nodes-base.switch",
         "typeVersion": 3.4,
         "position": [
-          544,
-          0
+          560,
+          -560
         ]
       },
       {
@@ -147,8 +66,8 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          832,
-          368
+          840,
+          -560
         ]
       },
       {
@@ -167,7 +86,7 @@
         "typeVersion": 1.3,
         "position": [
           0,
-          -656
+          40
         ]
       },
       {
@@ -182,8 +101,8 @@
         "type": "n8n-nodes-base.readWriteFile",
         "typeVersion": 1.1,
         "position": [
-          272,
-          -656
+          280,
+          40
         ],
         "onError": "continueErrorOutput"
       },
@@ -196,8 +115,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          528,
-          -656
+          560,
+          40
         ]
       },
       {
@@ -210,8 +129,8 @@
         "type": "n8n-nodes-base.crypto",
         "typeVersion": 2,
         "position": [
-          1072,
-          -80
+          1200,
+          -480
         ]
       },
       {
@@ -228,8 +147,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          1328,
-          -80
+          1480,
+          -480
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -259,8 +178,8 @@
         "type": "n8n-nodes-base.merge",
         "typeVersion": 3.2,
         "position": [
-          1584,
-          -80
+          1760,
+          -480
         ]
       },
       {
@@ -275,8 +194,8 @@
         "type": "n8n-nodes-base.s3",
         "typeVersion": 1,
         "position": [
-          1840,
-          -80
+          2040,
+          -480
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -314,8 +233,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          2080,
-          -80
+          2320,
+          -480
         ]
       },
       {
@@ -331,8 +250,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          2320,
-          -80
+          1200,
+          -240
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -375,8 +294,8 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.3,
         "position": [
-          2560,
-          -80
+          1480,
+          -240
         ]
       },
       {
@@ -416,8 +335,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          2800,
-          272
+          1760,
+          -240
         ]
       },
       {
@@ -433,8 +352,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          2800,
-          -160
+          3120,
+          -480
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -448,18 +367,18 @@
         "onError": "continueErrorOutput"
       },
       {
-      "parameters": {
-        "operation": "download",
-        "bucketName": "rag-documents",
-        "fileKey": "={{ $('Claim Document').first().json.sourceKey }}"
+        "parameters": {
+          "operation": "download",
+          "bucketName": "rag-documents",
+          "fileKey": "={{ $('Claim Document').first().json.sourceKey }}"
         },
         "id": "f79f6ee7-280b-4b71-be3f-855a89ccf3e1",
         "name": "Download Source",
         "type": "n8n-nodes-base.s3",
         "typeVersion": 1,
         "position": [
-          3040,
-          -160
+          3400,
+          -480
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -482,8 +401,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          3160,
-          -160
+          3680,
+          -480
         ],
         "onError": "continueErrorOutput"
       },
@@ -519,6 +438,54 @@
               {
                 "name": "include_images",
                 "value": "true"
+              },
+              {
+                "name": "include_page_images",
+                "value": "false"
+              },
+              {
+                "name": "images_scale",
+                "value": "2"
+              },
+              {
+                "name": "do_ocr",
+                "value": "true"
+              },
+              {
+                "name": "force_ocr",
+                "value": "false"
+              },
+              {
+                "name": "ocr_preset",
+                "value": "auto"
+              },
+              {
+                "name": "do_table_structure",
+                "value": "true"
+              },
+              {
+                "name": "table_mode",
+                "value": "accurate"
+              },
+              {
+                "name": "table_cell_matching",
+                "value": "true"
+              },
+              {
+                "name": "do_code_enrichment",
+                "value": "true"
+              },
+              {
+                "name": "do_formula_enrichment",
+                "value": "true"
+              },
+              {
+                "name": "do_picture_classification",
+                "value": "true"
+              },
+              {
+                "name": "md_page_break_placeholder",
+                "value": "<!-- page_break -->"
               }
             ]
           },
@@ -536,12 +503,12 @@
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.4,
         "position": [
-          3280,
-          -160
+          3960,
+          -480
         ],
         "retryOnFail": true,
-        "maxTries": 2,
-        "waitBetweenTries": 3000,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
         "onError": "continueErrorOutput"
       },
       {
@@ -551,22 +518,22 @@
         "type": "n8n-nodes-base.compression",
         "typeVersion": 1.1,
         "position": [
-          3520,
-          -160
+          4240,
+          -480
         ],
         "onError": "continueErrorOutput"
       },
       {
         "parameters": {
-          "jsCode": "\nconst contract = $('Claim Document').first().json;\nconst input = $input.first();\nconst binary = input.binary || {};\nconst entries = [];\nfor (const key of Object.keys(binary)) {\n  const meta = binary[key];\n  const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n  entries.push({ key, meta, buffer });\n}\nconst jsonEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.json'));\nconst mdEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.md'));\nif (!jsonEntry || !mdEntry) throw new Error('Docling ZIP must contain both JSON and Markdown outputs');\n\nconst doc = JSON.parse(jsonEntry.buffer.toString('utf8'));\nlet markdown = mdEntry.buffer.toString('utf8');\nconst imageEntries = entries.filter(e => /\\.(png|jpe?g|webp|gif|tiff?|bmp)$/i.test(e.meta.fileName || ''));\nmarkdown = markdown.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, (_, alt, ref) => {\n  const base = String(ref).replace(/\\\\/g, '/').split('/').pop();\n  return '![' + alt + '](images/' + base + ')';\n});\n\nconst byRef = new Map();\nfor (const collection of ['groups','texts','tables','pictures','key_value_items','form_items']) {\n  for (const item of (doc[collection] || [])) {\n    if (item && item.self_ref) byRef.set(item.self_ref, item);\n  }\n}\nconst pageOf = item => {\n  const p = item && Array.isArray(item.prov) ? item.prov[0] : null;\n  return Number.isInteger(p?.page_no) ? p.page_no : null;\n};\nconst esc = value => String(value ?? '').replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ');\nconst tableMarkdown = table => {\n  const grid = table?.data?.grid;\n  if (!Array.isArray(grid) || grid.length === 0) return '[Table]';\n  const rows = grid.map(row => row.map(cell => esc(cell?.text ?? cell)).join(' | '));\n  const width = Math.max(...grid.map(row => row.length), 1);\n  return '| ' + rows[0] + ' |\\n| ' + Array(width).fill('---').join(' | ') + ' |\\n' +\n    rows.slice(1).map(r => '| ' + r + ' |').join('\\n');\n};\nconst blocks = [];\nlet headings = [];\nconst pushBlock = (item, contentType, text) => {\n  const clean = String(text || '').trim();\n  if (!clean) return;\n  const page = pageOf(item);\n  blocks.push({ text: clean, heading_path: [...headings], page_start: page, page_end: page, content_type: contentType });\n};\nconst visit = refOrItem => {\n  const item = typeof refOrItem === 'string' ? byRef.get(refOrItem) : byRef.get(refOrItem?.$ref) || refOrItem;\n  if (!item) return;\n  const label = item.label || '';\n  if (label === 'title' || label === 'section_header') {\n    const level = Math.max(1, Number(item.level || (label === 'title' ? 1 : headings.length + 1)));\n    headings = headings.slice(0, level - 1);\n    headings[level - 1] = String(item.text || '').trim();\n    pushBlock(item, 'heading', item.text);\n    return;\n  }\n  if (item.data?.grid) pushBlock(item, 'table', tableMarkdown(item));\n  else if (label === 'picture' || item.self_ref?.startsWith('#/pictures/')) {\n    const caption = item.caption_text || item.text || (item.captions || []).map(c => c.text || '').filter(Boolean).join(' ');\n    pushBlock(item, 'image', caption ? '[Image] ' + caption : '[Image]');\n  } else if (item.text) pushBlock(item, label || 'text', item.text);\n  for (const child of (item.children || [])) visit(child);\n};\nfor (const child of (doc.body?.children || [])) visit(child);\n\nif (blocks.length === 0 && markdown.trim()) {\n  blocks.push({text: markdown.trim(), heading_path: [], page_start: null, page_end: null, content_type: 'markdown'});\n}\nconst MAX = 1200;\nconst OVERLAP = 150;\nconst chunks = [];\nconst stableUuid = seed => {\n  const words = [2166136261, 2246822519, 3266489917, 668265263];\n  for (let w = 0; w < words.length; w++) {\n    let h = words[w] >>> 0;\n    for (let i = 0; i < seed.length; i++) {\n      h ^= seed.charCodeAt(i) + w * 31;\n      h = Math.imul(h, 16777619 + w * 2) >>> 0;\n    }\n    words[w] = h;\n  }\n  let hex = words.map(v => v.toString(16).padStart(8, '0')).join('');\n  hex = hex.slice(0, 12) + '5' + hex.slice(13, 16) + ((parseInt(hex[16],16)&3)|8).toString(16) + hex.slice(17);\n  return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20,32);\n};\nlet current = null;\nconst emit = () => {\n  if (!current || !current.text.trim()) return;\n  const index = chunks.length;\n  chunks.push({\n    id: stableUuid(contract.documentId + ':' + index),\n    chunk_id: contract.documentId + ':' + String(index).padStart(6, '0'),\n    document_id: contract.documentId,\n    kb_id: contract.kbId,\n    chunk_index: index,\n    text: current.text.trim(),\n    heading_path: current.heading_path,\n    page_start: current.page_start,\n    page_end: current.page_end,\n    content_type: current.content_type,\n    source_key: contract.sourceKey,\n    source_sha256: contract.sourceSha256,\n    filename: contract.filename\n  });\n};\nfor (const block of blocks) {\n  const sameSection = current && JSON.stringify(current.heading_path) === JSON.stringify(block.heading_path) && current.content_type === block.content_type;\n  if (!sameSection || (current.text.length + block.text.length + 2 > MAX)) {\n    if (current) emit();\n    const carry = sameSection && current ? current.text.slice(-OVERLAP) : '';\n    current = {...block, text: carry ? carry + '\\n\\n' + block.text : block.text};\n  } else {\n    current.text += '\\n\\n' + block.text;\n    if (block.page_start != null) {\n      current.page_start = current.page_start == null ? block.page_start : Math.min(current.page_start, block.page_start);\n      current.page_end = current.page_end == null ? block.page_end : Math.max(current.page_end, block.page_end);\n    }\n  }\n}\nemit();\nif (chunks.length === 0) throw new Error('Docling produced no indexable content');\n\nconst prefix = 'documents/' + contract.kbId + '/' + contract.documentId + '/';\nconst manifest = {\n  schemaVersion: 1,\n  documentId: contract.documentId,\n  kbId: contract.kbId,\n  source: { key: contract.sourceKey, filename: contract.filename, sha256: contract.sourceSha256, mimeType: contract.mimeType },\n  artifacts: {\n    json: prefix + 'extracted/document.json',\n    markdown: prefix + 'extracted/document.md',\n    manifest: prefix + 'extracted/manifest.json',\n    images: imageEntries.map(e => prefix + 'extracted/images/' + (e.meta.fileName || e.key).replace(/^.*[\\\\/]/,'')),\n    chunks: prefix + 'chunks/chunks.json'\n  },\n  chunkCount: chunks.length,\n  createdAt: new Date().toISOString()\n};\nconst makeItem = async (objectKey, kind, buffer, fileName, mimeType, extra={}) => ({\n  json: { documentId: contract.documentId, kbId: contract.kbId, objectKey, kind, ...extra },\n  binary: { data: await this.helpers.prepareBinaryData(buffer, fileName, mimeType) }\n});\nconst output = [];\noutput.push(await makeItem(prefix+'extracted/document.json','docling_json',Buffer.from(JSON.stringify(doc,null,2)),'document.json','application/json'));\noutput.push(await makeItem(prefix+'extracted/document.md','markdown',Buffer.from(markdown),'document.md','text/markdown'));\nfor (const image of imageEntries) {\n  const name = (image.meta.fileName || image.key).replace(/^.*[\\\\/]/,'');\n  output.push(await makeItem(prefix+'extracted/images/'+name,'image',image.buffer,name,image.meta.mimeType || 'application/octet-stream'));\n}\noutput.push(await makeItem(prefix+'extracted/manifest.json','manifest',Buffer.from(JSON.stringify(manifest,null,2)),'manifest.json','application/json'));\noutput.push(await makeItem(prefix+'chunks/chunks.json','chunks',Buffer.from(JSON.stringify(chunks,null,2)),'chunks.json','application/json',{chunks,chunkCount:chunks.length,manifest}));\nreturn output;\n"
+          "jsCode": "\nconst contract = $('Claim Document').first().json;\nconst input = $input.first();\nconst binary = input.binary || {};\nconst entries = [];\nfor (const key of Object.keys(binary)) {\n  const meta = binary[key];\n  const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n  entries.push({ key, meta, buffer });\n}\nconst jsonEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.json'));\nconst mdEntry = entries.find(e => (e.meta.fileName || '').toLowerCase().endsWith('.md'));\nif (!jsonEntry || !mdEntry) throw new Error('Docling ZIP must contain both JSON and Markdown outputs');\n\nconst doc = JSON.parse(jsonEntry.buffer.toString('utf8'));\nlet markdown = mdEntry.buffer.toString('utf8');\nconst imageEntries = entries.filter(e => /\\.(png|jpe?g|webp|gif|tiff?|bmp)$/i.test(e.meta.fileName || ''));\nmarkdown = markdown.replace(/!\\[([^\\]]*)\\]\\(([^)]+)\\)/g, (_, alt, ref) => {\n  const base = String(ref).replace(/\\\\/g, '/').split('/').pop();\n  return '![' + alt + '](images/' + base + ')';\n});\n\nconst byRef = new Map();\nfor (const collection of ['groups','texts','tables','pictures','key_value_items','form_items']) {\n  for (const item of (doc[collection] || [])) {\n    if (item && item.self_ref) byRef.set(item.self_ref, item);\n  }\n}\nconst provenanceOf = item => {\n  const p = item && Array.isArray(item.prov) ? item.prov[0] : null;\n  return p ? { page_no: Number.isInteger(p.page_no) ? p.page_no : null, bbox: p.bbox || null, charspan: p.charspan || null } : null;\n};\nconst pageOf = item => provenanceOf(item)?.page_no ?? null;\nconst esc = value => String(value ?? '').replace(/\\|/g, '\\\\|').replace(/\\r?\\n/g, ' ');\nconst tableMarkdown = table => {\n  const grid = table?.data?.grid;\n  if (!Array.isArray(grid) || grid.length === 0) return '[Table]';\n  const rows = grid.map(row => row.map(cell => esc(cell?.text ?? cell)).join(' | '));\n  const width = Math.max(...grid.map(row => row.length), 1);\n  return '| ' + rows[0] + ' |\\n| ' + Array(width).fill('---').join(' | ') + ' |\\n' +\n    rows.slice(1).map(r => '| ' + r + ' |').join('\\n');\n};\nconst blocks = [];\nlet headings = [];\nconst pushBlock = (item, contentType, text) => {\n  const clean = String(text || '').trim();\n  if (!clean) return;\n  const page = pageOf(item);\n  blocks.push({ text: clean, heading_path: [...headings], page_start: page, page_end: page, content_type: contentType, provenance: provenanceOf(item), classification: item?.meta?.classification || item?.classification || null, language: item?.meta?.language || doc?.origin?.language || null });\n};\nconst visit = refOrItem => {\n  const item = typeof refOrItem === 'string' ? byRef.get(refOrItem) : byRef.get(refOrItem?.$ref) || refOrItem;\n  if (!item) return;\n  const label = item.label || '';\n  if (label === 'title' || label === 'section_header') {\n    const level = Math.max(1, Number(item.level || (label === 'title' ? 1 : headings.length + 1)));\n    headings = headings.slice(0, level - 1);\n    headings[level - 1] = String(item.text || '').trim();\n    pushBlock(item, 'heading', item.text);\n    return;\n  }\n  if (item.data?.grid) pushBlock(item, 'table', tableMarkdown(item));\n  else if (label === 'picture' || item.self_ref?.startsWith('#/pictures/')) {\n    const caption = item.caption_text || item.text || (item.captions || []).map(c => c.text || '').filter(Boolean).join(' ');\n    pushBlock(item, 'image', caption ? '[Image] ' + caption : '[Image]');\n  } else if (item.text) pushBlock(item, label || 'text', item.text);\n  for (const child of (item.children || [])) visit(child);\n};\nfor (const child of (doc.body?.children || [])) visit(child);\n\nif (blocks.length === 0 && markdown.trim()) {\n  blocks.push({text: markdown.trim(), heading_path: [], page_start: null, page_end: null, content_type: 'markdown'});\n}\nconst MAX = 1200;\nconst OVERLAP = 150;\nconst chunks = [];\nconst stableUuid = seed => {\n  const words = [2166136261, 2246822519, 3266489917, 668265263];\n  for (let w = 0; w < words.length; w++) {\n    let h = words[w] >>> 0;\n    for (let i = 0; i < seed.length; i++) {\n      h ^= seed.charCodeAt(i) + w * 31;\n      h = Math.imul(h, 16777619 + w * 2) >>> 0;\n    }\n    words[w] = h;\n  }\n  let hex = words.map(v => v.toString(16).padStart(8, '0')).join('');\n  hex = hex.slice(0, 12) + '5' + hex.slice(13, 16) + ((parseInt(hex[16],16)&3)|8).toString(16) + hex.slice(17);\n  return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20,32);\n};\nlet current = null;\nconst emit = () => {\n  if (!current || !current.text.trim()) return;\n  const index = chunks.length;\n  chunks.push({\n    id: stableUuid(contract.documentId + ':' + index),\n    chunk_id: contract.documentId + ':' + String(index).padStart(6, '0'),\n    document_id: contract.documentId,\n    kb_id: contract.kbId,\n    chunk_index: index,\n    text: current.text.trim(),\n    heading_path: current.heading_path,\n    page_start: current.page_start,\n    page_end: current.page_end,\n    content_type: current.content_type,\n    provenance: current.provenance || null,\n    classification: current.classification || null,\n    language: current.language || null,\n    source_key: contract.sourceKey,\n    source_sha256: contract.sourceSha256,\n    filename: contract.filename\n  });\n};\nfor (const block of blocks) {\n  const sameSection = current && JSON.stringify(current.heading_path) === JSON.stringify(block.heading_path) && current.content_type === block.content_type;\n  if (!sameSection || (current.text.length + block.text.length + 2 > MAX)) {\n    if (current) emit();\n    const carry = sameSection && current ? current.text.slice(-OVERLAP) : '';\n    current = {...block, text: carry ? carry + '\\n\\n' + block.text : block.text};\n  } else {\n    current.text += '\\n\\n' + block.text;\n    if (block.page_start != null) {\n      current.page_start = current.page_start == null ? block.page_start : Math.min(current.page_start, block.page_start);\n      current.page_end = current.page_end == null ? block.page_end : Math.max(current.page_end, block.page_end);\n    }\n  }\n}\nemit();\nif (chunks.length === 0) throw new Error('Docling produced no indexable content');\n\nconst prefix = 'documents/' + contract.kbId + '/' + contract.documentId + '/';\nconst manifest = {\n  schemaVersion: 1,\n  documentId: contract.documentId,\n  kbId: contract.kbId,\n  source: { key: contract.sourceKey, filename: contract.filename, sha256: contract.sourceSha256, mimeType: contract.mimeType },\n  artifacts: {\n    json: prefix + 'extracted/document.json',\n    markdown: prefix + 'extracted/document.md',\n    manifest: prefix + 'extracted/manifest.json',\n    images: imageEntries.map(e => prefix + 'extracted/images/' + (e.meta.fileName || e.key).replace(/^.*[\\\\/]/,'')),\n    chunks: prefix + 'chunks/chunks.json'\n  },\n  chunkCount: chunks.length,\n  docling: { schemaName: doc?.schema_name || null, version: doc?.version || null, origin: doc?.origin || null },\n  createdAt: new Date().toISOString()\n};\nconst makeItem = async (objectKey, kind, buffer, fileName, mimeType, extra={}) => ({\n  json: { documentId: contract.documentId, kbId: contract.kbId, objectKey, kind, ...extra },\n  binary: { data: await this.helpers.prepareBinaryData(buffer, fileName, mimeType) }\n});\nconst output = [];\noutput.push(await makeItem(prefix+'extracted/document.json','docling_json',Buffer.from(JSON.stringify(doc,null,2)),'document.json','application/json'));\noutput.push(await makeItem(prefix+'extracted/document.md','markdown',Buffer.from(markdown),'document.md','text/markdown'));\nfor (const image of imageEntries) {\n  const name = (image.meta.fileName || image.key).replace(/^.*[\\\\/]/,'');\n  output.push(await makeItem(prefix+'extracted/images/'+name,'image',image.buffer,name,image.meta.mimeType || 'application/octet-stream'));\n}\noutput.push(await makeItem(prefix+'extracted/manifest.json','manifest',Buffer.from(JSON.stringify(manifest,null,2)),'manifest.json','application/json'));\noutput.push(await makeItem(prefix+'chunks/chunks.json','chunks',Buffer.from(JSON.stringify(chunks,null,2)),'chunks.json','application/json',{chunks,chunkCount:chunks.length,manifest}));\nreturn output;\n"
         },
         "id": "90f11599-4109-48ec-b68a-1ddaca8a0b3b",
         "name": "Build Artifacts and Chunks",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          3760,
-          -160
+          3120,
+          -240
         ],
         "onError": "continueErrorOutput"
       },
@@ -582,8 +549,8 @@
         "type": "n8n-nodes-base.s3",
         "typeVersion": 1,
         "position": [
-          4000,
-          -160
+          3400,
+          -240
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -604,8 +571,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          4240,
-          -160
+          3680,
+          -240
         ],
         "onError": "continueErrorOutput"
       },
@@ -622,8 +589,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          4480,
-          -160
+          3960,
+          -240
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -679,8 +646,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          4720,
-          -160
+          4240,
+          -240
         ]
       },
       {
@@ -696,8 +663,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          4960,
-          -160
+          5280,
+          -480
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -713,52 +680,13 @@
       {
         "parameters": {
           "method": "POST",
-          "url": "http://ollama:11434/api/embed",
-          "sendBody": true,
-          "contentType": "raw",
-          "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ model: 'nomic-embed-text', input: $('Return Conversion').first().json.chunks.map(c => c.text), truncate: true }) }}",
-          "options": {
-            "timeout": 600000
-          }
-        },
-        "id": "1bf1ee65-b154-4543-b056-29b808fec0b2",
-        "name": "Generate Embeddings",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.4,
-        "position": [
-          5200,
-          -160
-        ],
-        "retryOnFail": true,
-        "maxTries": 3,
-        "waitBetweenTries": 2000,
-        "onError": "continueErrorOutput"
-      },
-      {
-        "parameters": {
-          "jsCode": "\nconst contract = $('Return Conversion').first().json;\nconst response = $input.first().json;\nconst chunks = contract.chunks;\nconst embeddings = response.embeddings;\nif (!Array.isArray(chunks) || chunks.length === 0) throw new Error('No chunks supplied for indexing');\nif (!Array.isArray(embeddings) || embeddings.length !== chunks.length) {\n  throw new Error('Ollama embedding count does not match chunk count');\n}\nconst points = chunks.map((chunk, index) => {\n  const vector = embeddings[index];\n  if (!Array.isArray(vector) || vector.length !== 768) {\n    throw new Error('Embedding dimension must be 768 for chunk ' + index);\n  }\n  return {\n    id: chunk.id,\n    vector,\n    payload: {\n      document_id: chunk.document_id,\n      kb_id: chunk.kb_id,\n      chunk_id: chunk.chunk_id,\n      chunk_index: chunk.chunk_index,\n      text: chunk.text,\n      heading_path: chunk.heading_path || [],\n      page_start: chunk.page_start,\n      page_end: chunk.page_end,\n      content_type: chunk.content_type,\n      source_key: chunk.source_key,\n      source_sha256: chunk.source_sha256,\n      filename: chunk.filename\n    }\n  };\n});\nreturn [{json:{documentId:contract.documentId,kbId:contract.kbId,chunkCount:chunks.length,points}}];\n"
-        },
-        "id": "86042161-f9b5-4b8c-849f-8994d25402fa",
-        "name": "Build Vector Points",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          5440,
-          -160
-        ],
-        "onError": "continueErrorOutput"
-      },
-      {
-        "parameters": {
-          "method": "POST",
           "url": "http://qdrant:6333/collections/rag_chunks/points/delete?wait=true",
           "authentication": "predefinedCredentialType",
           "nodeCredentialType": "qdrantApi",
           "sendBody": true,
           "contentType": "raw",
           "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ filter: { must: [{ key: 'document_id', match: { value: $json.documentId } }] } }) }}",
+          "body": "={{ JSON.stringify({ filter: { must: [{ key: 'metadata.document_id', match: { value: $('Return Conversion').first().json.documentId } }] } }) }}",
           "options": {
             "timeout": 120000
           }
@@ -768,45 +696,12 @@
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.4,
         "position": [
-          5680,
-          -160
+          5560,
+          -480
         ],
         "retryOnFail": true,
         "maxTries": 3,
-        "waitBetweenTries": 1500,
-        "credentials": {
-          "qdrantApi": {
-            "id": "RxQ7256kohP8jsgH",
-            "name": "Local RAG Qdrant"
-          }
-        },
-        "onError": "continueErrorOutput"
-      },
-      {
-        "parameters": {
-          "method": "PUT",
-          "url": "http://qdrant:6333/collections/rag_chunks/points?wait=true",
-          "authentication": "predefinedCredentialType",
-          "nodeCredentialType": "qdrantApi",
-          "sendBody": true,
-          "contentType": "raw",
-          "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ points: $('Build Vector Points').first().json.points }) }}",
-          "options": {
-            "timeout": 300000
-          }
-        },
-        "id": "afe2a87a-b01f-4202-8c8c-47e1513672fa",
-        "name": "Upsert Vectors",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.4,
-        "position": [
-          5920,
-          -160
-        ],
-        "retryOnFail": true,
-        "maxTries": 3,
-        "waitBetweenTries": 1500,
+        "waitBetweenTries": 5000,
         "credentials": {
           "qdrantApi": {
             "id": "RxQ7256kohP8jsgH",
@@ -820,7 +715,7 @@
           "operation": "executeQuery",
           "query": "UPDATE rag_documents SET status = 'indexed', chunk_count = $2::integer, indexed_at = now(), error_code = NULL, error_message = NULL, error_details = NULL, updated_at = now() WHERE id = $1::uuid;\nINSERT INTO rag_document_events(document_id, status, stage, details) VALUES ($1::uuid, 'indexed', 'qdrant', jsonb_build_object('chunkCount', $2::integer, 'collection', 'rag_chunks'));\nSELECT $1::text AS \"documentId\", $2::integer AS \"chunkCount\", 'indexed'::text AS status;",
           "options": {
-            "queryReplacement": "={{ [$('Build Vector Points').first().json.documentId, $('Build Vector Points').first().json.chunkCount] }}"
+            "queryReplacement": "={{ [$('Return Conversion').first().json.documentId, $('Return Conversion').first().json.chunks.length] }}"
           }
         },
         "id": "c039b928-1521-41ce-9a9f-9b5b5b565059",
@@ -828,8 +723,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          6160,
-          -160
+          5560,
+          -240
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -856,7 +751,7 @@
                 "id": "c8ae6e15-4e5c-4a17-ab46-fb6fa9fd73a7",
                 "name": "kbId",
                 "type": "string",
-                "value": "={{ $('Build Vector Points').first().json.kbId }}"
+                "value": "={{ $('Return Conversion').first().json.kbId }}"
               },
               {
                 "id": "1316346a-3cc0-405d-a4ac-de4106a1b15b",
@@ -868,7 +763,7 @@
                 "id": "e87395a0-3bb3-4351-88e7-0dd0257759b9",
                 "name": "chunkCount",
                 "type": "number",
-                "value": "={{ $json.chunkCount }}"
+                "value": "={{ $('Return Conversion').first().json.chunks.length }}"
               },
               {
                 "id": "10000000-0000-4000-8000-000000000021",
@@ -885,8 +780,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          6400,
-          -160
+          5840,
+          -240
         ]
       },
       {
@@ -938,8 +833,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          4208,
-          224
+          3600,
+          960
         ]
       },
       {
@@ -950,7 +845,7 @@
                 "id": "7a5d6f1c-24ad-4103-b81d-2aa1aa78863e",
                 "name": "documentId",
                 "type": "string",
-                "value": "={{ $json.documentId }}"
+                "value": "={{ $json.documentId || $('Return Conversion').first().json.documentId }}"
               },
               {
                 "id": "7f8b1743-9065-4c96-aa45-0ae21e1b26e3",
@@ -991,8 +886,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          5712,
-          224
+          3880,
+          960
         ]
       },
       {
@@ -1009,8 +904,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          6192,
-          224
+          4160,
+          960
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -1078,8 +973,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          6432,
-          224
+          4440,
+          960
         ]
       },
       {
@@ -1091,8 +986,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          6640,
-          -160
+          4720,
+          960
         ]
       },
       {
@@ -1104,8 +999,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          6672,
-          224
+          3600,
+          1200
         ]
       },
       {
@@ -1137,8 +1032,8 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.3,
         "position": [
-          6912,
-          -160
+          3880,
+          1200
         ]
       },
       {
@@ -1170,8 +1065,8 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.3,
         "position": [
-          6912,
-          224
+          4160,
+          1200
         ]
       },
       {
@@ -1186,8 +1081,8 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          7168,
-          -160
+          4440,
+          1200
         ]
       },
       {
@@ -1202,117 +1097,21 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          7168,
-          224
+          4720,
+          1200
         ]
       },
       {
         "parameters": {
-          "method": "POST",
-          "url": "http://ollama:11434/api/embed",
-          "sendBody": true,
-          "contentType": "raw",
-          "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ model: 'nomic-embed-text', input: [$('Normalize and Validate Request').first().json.query], truncate: true }) }}",
-          "options": {
-            "timeout": 120000
-          }
-        },
-        "id": "10000000-0000-4000-8000-000000000033",
-        "name": "Embed User Query",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.4,
-        "position": [
-          864,
-          992
-        ],
-        "retryOnFail": true,
-        "maxTries": 3,
-        "waitBetweenTries": 1500,
-        "onError": "continueErrorOutput"
-      },
-      {
-        "parameters": {
-          "method": "POST",
-          "url": "http://qdrant:6333/collections/rag_chunks/points/query",
-          "authentication": "predefinedCredentialType",
-          "nodeCredentialType": "qdrantApi",
-          "sendBody": true,
-          "contentType": "raw",
-          "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ query: $json.embeddings[0], filter: { must: [{ key: 'kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } }] }, limit: $('Normalize and Validate Request').first().json.topK, with_payload: true, with_vector: false, score_threshold: 0.2 }) }}",
-          "options": {
-            "timeout": 120000
-          }
-        },
-        "id": "10000000-0000-4000-8000-000000000034",
-        "name": "Search Qdrant",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.4,
-        "position": [
-          1120,
-          992
-        ],
-        "retryOnFail": true,
-        "maxTries": 3,
-        "waitBetweenTries": 1500,
-        "credentials": {
-          "qdrantApi": {
-            "id": "RxQ7256kohP8jsgH",
-            "name": "Local RAG Qdrant"
-          }
-        },
-        "onError": "continueErrorOutput"
-      },
-      {
-        "parameters": {
-          "jsCode": "const response = $input.first().json;\nconst request = $('Normalize and Validate Request').first().json;\nconst points = Array.isArray(response?.result?.points) ? response.result.points : (Array.isArray(response?.result) ? response.result : []);\nconst sources = points.map((point, index) => {\n  const p = point.payload || {};\n  return {\n    id: 'S' + (index + 1),\n    score: Number(point.score || 0),\n    documentId: p.document_id || null,\n    chunkId: p.chunk_id || null,\n    filename: p.filename || 'unknown',\n    pageStart: p.page_start ?? null,\n    pageEnd: p.page_end ?? null,\n    headingPath: Array.isArray(p.heading_path) ? p.heading_path : [],\n    sourceKey: p.source_key || null,\n    text: String(p.text || '')\n  };\n});\nconst context = sources.length\n  ? sources.map(s => '[' + s.id + '] ' + s.filename + (s.pageStart != null ? ' page ' + s.pageStart : '') + '\\n' + s.text).join('\\n\\n')\n  : '(No matching context was retrieved.)';\nconst system = [\n  'You are a local retrieval-grounded assistant.',\n  'Answer only from the supplied context.',\n  'Cite factual claims using the provided source IDs such as [S1].',\n  'If the context is insufficient, say that the indexed documents do not contain enough information.',\n  'Do not invent sources, filenames, page numbers, or facts.',\n  'Keep the answer concise and useful.'\n].join(' ');\nreturn [{json:{query:request.query,kbId:request.kbId,model:'qwen3:4b',sources,context,system}}];"
-        },
-        "id": "10000000-0000-4000-8000-000000000035",
-        "name": "Assemble Grounded Context",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          1392,
-          992
-        ]
-      },
-      {
-        "parameters": {
-          "method": "POST",
-          "url": "http://ollama:11434/api/chat",
-          "sendBody": true,
-          "contentType": "raw",
-          "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ model: $json.model, stream: false, think: false, messages: [{ role: 'system', content: $json.system }, { role: 'user', content: 'Question:\\n' + $json.query + '\\n\\nContext:\\n' + $json.context }], options: { temperature: 0.1, num_ctx: 2048 } }) }}",
-          "options": {
-            "timeout": 600000
-          }
-        },
-        "id": "10000000-0000-4000-8000-000000000036",
-        "name": "Generate Grounded Answer",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.4,
-        "position": [
-          1648,
-          992
-        ],
-        "retryOnFail": true,
-        "maxTries": 2,
-        "waitBetweenTries": 2000,
-        "onError": "continueErrorOutput"
-      },
-      {
-        "parameters": {
-        "jsCode": "const response = $input.first().json;\nconst context = $('Assemble Grounded Context').first().json;\nconst rawAnswer = String(response?.message?.content || response?.response || '').trim();\nconst answer = rawAnswer.includes('</think>') ? rawAnswer.split('</think>').pop().trim() : rawAnswer;\nreturn [{json:{\n  ok: true,\n  action: 'query',\n  query: context.query,\n  answer: answer || 'The local model returned an empty answer.',\n  sources: context.sources.map(({text, ...source}) => source),\n  retrieval: { type: 'vector', resultCount: context.sources.length, collection: 'rag_chunks' },\n  model: context.model\n}}];"
+          "jsCode": "const request = $('Normalize and Validate Request').first().json;\nconst result = $input.first().json;\nconst parsed = result.output && typeof result.output === 'object' ? result.output : { answer: String(result.output || ''), sources: [], noContext: false };\nreturn [{ json: {\n  ok: true,\n  action: 'query',\n  query: request.query,\n  answer: String(parsed.answer || 'The local model returned an empty answer.'),\n  sources: Array.isArray(parsed.sources) ? parsed.sources : [],\n  retrieval: { type: 'qdrant-agent-tool', resultCount: Array.isArray(parsed.sources) ? parsed.sources.length : 0, collection: 'rag_chunks', noContext: Boolean(parsed.noContext) },\n  model: 'qwen3:4b'\n} }];"
         },
         "id": "10000000-0000-4000-8000-000000000037",
-        "name": "Format Answer with Sources",
+        "name": "Format Agent Response",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          1904,
-          992
+          1240,
+          960
         ]
       },
       {
@@ -1327,21 +1126,21 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          2160,
-          992
+          1520,
+          960
         ]
       },
       {
         "parameters": {
-          "jsCode": "const d=$input.first().json; return [{json:{ok:false,action:'query',error:{code:'RETRIEVAL_FAILED',message:d.error?.message||d.message||'Retrieval or generation failed'}}}];"
+          "jsCode": "const failure=$input.first().json; const request=$('Normalize and Validate Request').first().json; return [{json:{ok:false,action:'query',query:request.query,error:{code:'RETRIEVAL_FAILED',message:'The local retrieval service could not complete the request.',retryable:Boolean(failure)}}}];"
         },
         "id": "10000000-0000-4000-8000-000000000039",
         "name": "Format Retrieval Failure",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          1648,
-          1248
+          3600,
+          1440
         ]
       },
       {
@@ -1356,8 +1155,8 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          1936,
-          1328
+          3880,
+          1440
         ]
       },
       {
@@ -1369,7 +1168,7 @@
           "sendBody": true,
           "contentType": "raw",
           "rawContentType": "application/json",
-          "body": "={{ JSON.stringify({ filter: { must: [ $('Normalize and Validate Request').first().json.documentId ? { key: 'document_id', match: { value: $('Normalize and Validate Request').first().json.documentId } } : { key: 'kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } } ] } }) }}",
+          "body": "={{ JSON.stringify({ filter: { must: [$('Normalize and Validate Request').first().json.documentId ? { key: 'metadata.document_id', match: { value: $('Normalize and Validate Request').first().json.documentId } } : { key: 'metadata.kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } }] } }) }}",
           "options": {
             "timeout": 120000
           }
@@ -1379,12 +1178,12 @@
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.4,
         "position": [
-          864,
-          1792
+          960,
+          2080
         ],
         "retryOnFail": true,
         "maxTries": 3,
-        "waitBetweenTries": 1500,
+        "waitBetweenTries": 5000,
         "credentials": {
           "qdrantApi": {
             "id": "RxQ7256kohP8jsgH",
@@ -1407,8 +1206,8 @@
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2.6,
         "position": [
-          1120,
-          1792
+          1240,
+          2080
         ],
         "retryOnFail": true,
         "maxTries": 3,
@@ -1451,8 +1250,8 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.3,
         "position": [
-          1392,
-          1792
+          1520,
+          2080
         ]
       },
       {
@@ -1480,8 +1279,8 @@
         "type": "n8n-nodes-base.set",
         "typeVersion": 3.4,
         "position": [
-          1648,
-          1664
+          1800,
+          2080
         ]
       },
       {
@@ -1493,8 +1292,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          1648,
-          1904
+          2080,
+          2080
         ]
       },
       {
@@ -1509,8 +1308,8 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          1904,
-          1904
+          960,
+          2320
         ]
       },
       {
@@ -1522,8 +1321,8 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          1392,
-          2112
+          1240,
+          2320
         ]
       },
       {
@@ -1538,8 +1337,8 @@
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.5,
         "position": [
-          1648,
-          2112
+          1520,
+          2320
         ]
       },
       {
@@ -1549,55 +1348,8 @@
         "type": "n8n-nodes-base.noOp",
         "typeVersion": 1,
         "position": [
-          528,
-          -448
-        ]
-      },
-      {
-        "parameters": {
-          "conditions": {
-            "options": {
-              "caseSensitive": true,
-              "leftValue": "",
-              "typeValidation": "strict",
-              "version": 2
-            },
-            "conditions": [
-              {
-                "id": "10000000-0000-4000-8000-000000000054",
-                "leftValue": "={{ $json.sources.length > 0 }}",
-                "rightValue": true,
-                "operator": {
-                  "type": "boolean",
-                  "operation": "true",
-                  "singleValue": true
-                }
-              }
-            ],
-            "combinator": "and"
-          },
-          "options": {}
-        },
-        "id": "10000000-0000-4000-8000-000000000053",
-        "name": "Context Found?",
-        "type": "n8n-nodes-base.if",
-        "typeVersion": 2.3,
-        "position": [
-          1632,
-          992
-        ]
-      },
-      {
-        "parameters": {
-          "jsCode": "const d=$input.first().json; return [{json:{ok:true,action:'query',query:d.query,answer:'The indexed documents do not contain enough information to answer this question.',sources:[],retrieval:{type:'vector',resultCount:0,collection:'rag_chunks'},model:null}}];"
-        },
-        "id": "10000000-0000-4000-8000-000000000055",
-        "name": "Format No Context Answer",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          1904,
-          1168
+          840,
+          40
         ]
       },
       {
@@ -1609,8 +1361,479 @@
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          1712,
+          1800,
+          2320
+        ]
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "20000000-0000-4000-8000-000000000001",
+                "name": "documentId",
+                "type": "string",
+                "value": "={{ $('Return Conversion').first().json.documentId }}"
+              },
+              {
+                "id": "20000000-0000-4000-8000-000000000002",
+                "name": "kbId",
+                "type": "string",
+                "value": "={{ $('Return Conversion').first().json.kbId }}"
+              },
+              {
+                "id": "20000000-0000-4000-8000-000000000003",
+                "name": "chunks",
+                "type": "array",
+                "value": "={{ $('Return Conversion').first().json.chunks }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "20000000-0000-4000-8000-000000000010",
+        "name": "Restore Chunk Batch",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          5840,
+          -480
+        ]
+      },
+      {
+        "parameters": {
+          "fieldToSplitOut": "chunks",
+          "options": {
+            "destinationFieldName": "chunk",
+            "include": "allOtherFields"
+          }
+        },
+        "id": "20000000-0000-4000-8000-000000000011",
+        "name": "Split Chunks for Indexing",
+        "type": "n8n-nodes-base.splitOut",
+        "typeVersion": 1,
+        "position": [
+          6120,
+          -480
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "insert",
+          "qdrantCollection": {
+            "__rl": true,
+            "mode": "id",
+            "value": "rag_chunks"
+          },
+          "embeddingBatchSize": 64,
+          "options": {
+            "contentPayloadKey": "text",
+            "metadataPayloadKey": "metadata"
+          }
+        },
+        "id": "20000000-0000-4000-8000-000000000012",
+        "name": "Index Chunks in Qdrant",
+        "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+        "typeVersion": 1.3,
+        "position": [
+          6400,
+          -480
+        ],
+        "credentials": {
+          "qdrantApi": {
+            "id": "RxQ7256kohP8jsgH",
+            "name": "Local RAG Qdrant"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "model": "nomic-embed-text"
+        },
+        "id": "20000000-0000-4000-8000-000000000013",
+        "name": "Index Embeddings",
+        "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+        "typeVersion": 1,
+        "position": [
+          6400,
           -80
+        ],
+        "credentials": {
+          "ollamaApi": {
+            "id": "2MlR3DAb4VQ1wHBI",
+            "name": "Local RAG Ollama"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "dataType": "json",
+          "jsonMode": "expressionData",
+          "jsonData": "={{ $json.chunk.text }}",
+          "textSplittingMode": "simple",
+          "options": {
+            "metadata": {
+              "metadataValues": [
+                {
+                  "name": "document_id",
+                  "value": "={{ $json.chunk.document_id }}"
+                },
+                {
+                  "name": "kb_id",
+                  "value": "={{ $json.chunk.kb_id }}"
+                },
+                {
+                  "name": "chunk_id",
+                  "value": "={{ $json.chunk.chunk_id }}"
+                },
+                {
+                  "name": "chunk_index",
+                  "value": "={{ $json.chunk.chunk_index }}"
+                },
+                {
+                  "name": "filename",
+                  "value": "={{ $json.chunk.filename }}"
+                },
+                {
+                  "name": "page_start",
+                  "value": "={{ $json.chunk.page_start }}"
+                },
+                {
+                  "name": "page_end",
+                  "value": "={{ $json.chunk.page_end }}"
+                },
+                {
+                  "name": "heading_path",
+                  "value": "={{ JSON.stringify($json.chunk.heading_path || []) }}"
+                },
+                {
+                  "name": "content_type",
+                  "value": "={{ $json.chunk.content_type }}"
+                },
+                {
+                  "name": "source_key",
+                  "value": "={{ $json.chunk.source_key }}"
+                },
+                {
+                  "name": "source_sha256",
+                  "value": "={{ $json.chunk.source_sha256 }}"
+                },
+                {
+                  "name": "provenance",
+                  "value": "={{ JSON.stringify($json.chunk.provenance || null) }}"
+                },
+                {
+                  "name": "classification",
+                  "value": "={{ JSON.stringify($json.chunk.classification || null) }}"
+                },
+                {
+                  "name": "language",
+                  "value": "={{ $json.chunk.language || \"\" }}"
+                }
+              ]
+            }
+          }
+        },
+        "id": "20000000-0000-4000-8000-000000000014",
+        "name": "Load Structured Chunk",
+        "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+        "typeVersion": 1.1,
+        "position": [
+          6680,
+          -80
+        ]
+      },
+      {
+        "parameters": {
+          "aggregate": "aggregateAllItemData",
+          "destinationFieldName": "indexedChunks",
+          "options": {}
+        },
+        "id": "20000000-0000-4000-8000-000000000015",
+        "name": "Collect Indexed Chunks",
+        "type": "n8n-nodes-base.aggregate",
+        "typeVersion": 1,
+        "position": [
+          5280,
+          -240
+        ]
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "={{ 'Question: ' + $('Normalize and Validate Request').first().json.query + '\\nMaximum sources to cite: ' + $('Normalize and Validate Request').first().json.topK }}",
+          "hasOutputParser": true,
+          "needsFallback": false,
+          "options": {
+            "systemMessage": "You are a local retrieval-grounded assistant. Always call the Answer from Local Knowledge Base tool before answering. Use only retrieved evidence. Apply the fixed knowledge-base filter supplied by the workflow. Cite factual claims with source identifiers and include exact filename, page, chunk, score, heading, and document identifiers from tool metadata. If evidence is insufficient, set noContext=true and say so. Never invent sources or metadata. Return only the structured output required by the parser. Current time: {{ $now.toISO() }}.",
+            "maxIterations": 12,
+            "returnIntermediateSteps": false,
+            "enableStreaming": false,
+            "passthroughBinaryImages": false
+          }
+        },
+        "id": "20000000-0000-4000-8000-000000000020",
+        "name": "Local RAG Agent",
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 3.1,
+        "position": [
+          960,
+          960
+        ],
+        "retryOnFail": true,
+        "maxTries": 2,
+        "waitBetweenTries": 5000,
+        "onError": "continueErrorOutput"
+      },
+      {
+        "parameters": {
+          "model": "qwen3:4b",
+          "options": {
+            "think": false,
+            "temperature": 0.1,
+            "numCtx": 8192,
+            "keepAlive": "10m"
+          }
+        },
+        "id": "20000000-0000-4000-8000-000000000021",
+        "name": "Ollama Chat Model",
+        "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+        "typeVersion": 1,
+        "position": [
+          1800,
+          960
+        ],
+        "credentials": {
+          "ollamaApi": {
+            "id": "2MlR3DAb4VQ1wHBI",
+            "name": "Local RAG Ollama"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "retrieve",
+          "qdrantCollection": {
+            "__rl": true,
+            "mode": "id",
+            "value": "rag_chunks"
+          },
+          "options": {
+            "searchFilterJson": "={{ JSON.stringify({ must: [{ key: 'metadata.kb_id', match: { value: $('Normalize and Validate Request').first().json.kbId } }] }) }}",
+            "contentPayloadKey": "text",
+            "metadataPayloadKey": "metadata"
+          }
+        },
+        "id": "20000000-0000-4000-8000-000000000022",
+        "name": "Search Local Knowledge Base",
+        "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+        "typeVersion": 1.3,
+        "position": [
+          2080,
+          960
+        ],
+        "credentials": {
+          "qdrantApi": {
+            "id": "RxQ7256kohP8jsgH",
+            "name": "Local RAG Qdrant"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "description": "Search and answer from the local document knowledge base. Always use this tool before answering. Qdrant is restricted to the current knowledge base and retains source filenames, pages, headings, chunks, provenance, and document identifiers.",
+          "topK": 12
+        },
+        "id": "20000000-0000-4000-8000-000000000025",
+        "name": "Answer from Local Knowledge Base",
+        "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+        "typeVersion": 1.1,
+        "position": [
+          960,
+          1200
+        ]
+      },
+      {
+        "parameters": {
+          "model": "nomic-embed-text"
+        },
+        "id": "20000000-0000-4000-8000-000000000023",
+        "name": "Query Embeddings",
+        "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+        "typeVersion": 1,
+        "position": [
+          1240,
+          1200
+        ],
+        "credentials": {
+          "ollamaApi": {
+            "id": "2MlR3DAb4VQ1wHBI",
+            "name": "Local RAG Ollama"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "schemaType": "manual",
+          "inputSchema": "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"},\"noContext\":{\"type\":\"boolean\"},\"sources\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"documentId\":{\"type\":\"string\"},\"chunkId\":{\"type\":\"string\"},\"filename\":{\"type\":\"string\"},\"pageStart\":{\"type\":[\"integer\",\"null\"]},\"pageEnd\":{\"type\":[\"integer\",\"null\"]},\"score\":{\"type\":\"number\"},\"headingPath\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"documentId\",\"chunkId\",\"filename\",\"pageStart\",\"pageEnd\",\"score\",\"headingPath\"],\"additionalProperties\":false}}},\"required\":[\"answer\",\"noContext\",\"sources\"],\"additionalProperties\":false}",
+          "autoFix": true,
+          "customizeRetryPrompt": false
+        },
+        "id": "20000000-0000-4000-8000-000000000024",
+        "name": "Grounded Answer Schema",
+        "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+        "typeVersion": 1.3,
+        "position": [
+          1520,
+          1200
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 00 - API Contract\nOne `/webhook/rag` entry point. Validate first; every branch returns exactly once.",
+          "height": 520,
+          "width": 1120,
+          "color": 5
+        },
+        "id": "30000000-0000-4000-8000-000000000001",
+        "name": "00 - API Contract",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -160,
+          -720
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 10 - Folder Intake\nScheduled local inbox intake joins the same ingestion path.",
+          "height": 460,
+          "width": 1120,
+          "color": 6
+        },
+        "id": "30000000-0000-4000-8000-000000000002",
+        "name": "10 - Folder Intake",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -160,
+          -120
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 20 - Register and Store\nHash, register, upload the private original, and claim processing idempotently.",
+          "height": 640,
+          "width": 1840,
+          "color": 3
+        },
+        "id": "30000000-0000-4000-8000-000000000003",
+        "name": "20 - Register and Store",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          1040,
+          -720
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 30 - Docling Extraction\nStructured JSON + Markdown + referenced images. OCR, accurate tables, formulas, code, classifications, and provenance are retained.",
+          "height": 640,
+          "width": 2080,
+          "color": 4
+        },
+        "id": "30000000-0000-4000-8000-000000000004",
+        "name": "30 - Docling Extraction",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          2960,
+          -720
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 40 - Native Vector Indexing\nOllama Embeddings + Qdrant Vector Store. Payload text is stored under `text`; source metadata under `metadata`.",
+          "height": 880,
+          "width": 1920,
+          "color": 2
+        },
+        "id": "30000000-0000-4000-8000-000000000005",
+        "name": "40 - Native Vector Indexing",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          5120,
+          -720
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 50 - Agentic Retrieval\nThe Ollama-backed Agent must call Qdrant as a retrieval tool and return a structured grounded answer.",
+          "height": 1040,
+          "width": 1760,
+          "color": 1
+        },
+        "id": "30000000-0000-4000-8000-000000000006",
+        "name": "50 - Agentic Retrieval",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          800,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 60 - Future MCP Tools\nReserved `ai_tool` extension area. Add an MCP Client Tool only after its server URL, authentication, and allowed tools are defined.",
+          "height": 420,
+          "width": 760,
+          "color": 7
+        },
+        "id": "30000000-0000-4000-8000-000000000007",
+        "name": "60 - Future MCP Tools",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          2640,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 70 - Reset and Reprocess\nDelete vectors by nested metadata filter, reset lifecycle state, and optionally re-enter ingestion.",
+          "height": 560,
+          "width": 2080,
+          "color": 5
+        },
+        "id": "30000000-0000-4000-8000-000000000008",
+        "name": "70 - Reset and Reprocess",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          800,
+          1840
+        ]
+      },
+      {
+        "parameters": {
+          "content": "## 80 - Failure Handling\nNetwork failures retry, normalize, persist private context, and terminate in a webhook response when applicable.",
+          "height": 760,
+          "width": 2080,
+          "color": 3
+        },
+        "id": "30000000-0000-4000-8000-000000000009",
+        "name": "80 - Failure Handling",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          3440,
+          720
         ]
       }
     ],
@@ -1648,7 +1871,7 @@
           ],
           [
             {
-              "node": "Embed User Query",
+              "node": "Local RAG Agent",
               "type": "main",
               "index": 0
             }
@@ -1971,42 +2194,6 @@
         "main": [
           [
             {
-              "node": "Generate Embeddings",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Normalize Index Failure",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Generate Embeddings": {
-        "main": [
-          [
-            {
-              "node": "Build Vector Points",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Normalize Index Failure",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Build Vector Points": {
-        "main": [
-          [
-            {
               "node": "Delete Previous Vectors",
               "type": "main",
               "index": 0
@@ -2025,25 +2212,7 @@
         "main": [
           [
             {
-              "node": "Upsert Vectors",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Normalize Index Failure",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Upsert Vectors": {
-        "main": [
-          [
-            {
-              "node": "Mark Indexed",
+              "node": "Restore Chunk Batch",
               "type": "main",
               "index": 0
             }
@@ -2192,71 +2361,6 @@
           ]
         ]
       },
-      "Embed User Query": {
-        "main": [
-          [
-            {
-              "node": "Search Qdrant",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Format Retrieval Failure",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Search Qdrant": {
-        "main": [
-          [
-            {
-              "node": "Assemble Grounded Context",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Format Retrieval Failure",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Generate Grounded Answer": {
-        "main": [
-          [
-            {
-              "node": "Format Answer with Sources",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Format Retrieval Failure",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Format Answer with Sources": {
-        "main": [
-          [
-            {
-              "node": "Respond Query",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
       "Format Retrieval Failure": {
         "main": [
           [
@@ -2355,46 +2459,6 @@
           ]
         ]
       },
-      "Assemble Grounded Context": {
-        "main": [
-          [
-            {
-              "node": "Context Found?",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Context Found?": {
-        "main": [
-          [
-            {
-              "node": "Generate Grounded Answer",
-              "type": "main",
-              "index": 0
-            }
-          ],
-          [
-            {
-              "node": "Format No Context Answer",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Format No Context Answer": {
-        "main": [
-          [
-            {
-              "node": "Respond Query",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
       "Merge Upload Context": {
         "main": [
           [
@@ -2412,6 +2476,173 @@
             {
               "node": "Upload Source to MinIO",
               "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Restore Chunk Batch": {
+        "main": [
+          [
+            {
+              "node": "Split Chunks for Indexing",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Split Chunks for Indexing": {
+        "main": [
+          [
+            {
+              "node": "Index Chunks in Qdrant",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Index Chunks in Qdrant": {
+        "main": [
+          [
+            {
+              "node": "Collect Indexed Chunks",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Normalize Index Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Collect Indexed Chunks": {
+        "main": [
+          [
+            {
+              "node": "Mark Indexed",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Local RAG Agent": {
+        "main": [
+          [
+            {
+              "node": "Format Agent Response",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Format Retrieval Failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Agent Response": {
+        "main": [
+          [
+            {
+              "node": "Respond Query",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Index Embeddings": {
+        "ai_embedding": [
+          [
+            {
+              "node": "Index Chunks in Qdrant",
+              "type": "ai_embedding",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Load Structured Chunk": {
+        "ai_document": [
+          [
+            {
+              "node": "Index Chunks in Qdrant",
+              "type": "ai_document",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ollama Chat Model": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "Local RAG Agent",
+              "type": "ai_languageModel",
+              "index": 0
+            },
+            {
+              "node": "Answer from Local Knowledge Base",
+              "type": "ai_languageModel",
+              "index": 0
+            },
+            {
+              "node": "Grounded Answer Schema",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Local Knowledge Base": {
+        "ai_vectorStore": [
+          [
+            {
+              "node": "Answer from Local Knowledge Base",
+              "type": "ai_vectorStore",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Answer from Local Knowledge Base": {
+        "ai_tool": [
+          [
+            {
+              "node": "Local RAG Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Query Embeddings": {
+        "ai_embedding": [
+          [
+            {
+              "node": "Search Local Knowledge Base",
+              "type": "ai_embedding",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Grounded Answer Schema": {
+        "ai_outputParser": [
+          [
+            {
+              "node": "Local RAG Agent",
+              "type": "ai_outputParser",
               "index": 0
             }
           ]
@@ -2436,7 +2667,6 @@
     "meta": null,
     "nodeGroups": [],
     "pinData": {},
-    "versionId": "bbf6f6bc-7021-41eb-817e-682a0462813d",
     "activeVersionId": "246c23bd-2a21-4d3b-a686-6f1c4535b7f5",
     "versionCounter": 13,
     "triggerCount": 2,

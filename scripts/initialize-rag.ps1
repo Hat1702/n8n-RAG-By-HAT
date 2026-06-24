@@ -17,7 +17,7 @@ Get-Content '.env' | ForEach-Object {
 }
 
 $migration = Get-Content -Raw 'infra/postgres/migrations/001-rag-ingestion.sql'
-$migration | docker compose --env-file .env -f docker-compose.yml -f compose.dev.yml exec -T postgres sh -c 'PGPASSWORD="$RAG_DB_PASSWORD" psql --set=ON_ERROR_STOP=1 --username "$RAG_DB_USER" --dbname "$RAG_DB_NAME"'
+$migration | docker compose --env-file .env -f docker-compose.yml exec -T postgres sh -c 'PGPASSWORD="$RAG_DB_PASSWORD" psql --set=ON_ERROR_STOP=1 --username "$RAG_DB_USER" --dbname "$RAG_DB_NAME"'
 if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL RAG migration failed.' }
 
 $collection = if ($values.QDRANT_COLLECTION) { $values.QDRANT_COLLECTION } else { 'rag_chunks' }
@@ -31,13 +31,23 @@ try {
     Invoke-RestMethod -Method Put -Uri $collectionUri -Headers $headers -ContentType 'application/json' -Body $body | Out-Null
 }
 
-foreach ($field in @('kb_id', 'document_id', 'source_sha256', 'content_type')) {
+foreach ($field in @('metadata.kb_id', 'metadata.document_id', 'metadata.source_sha256', 'metadata.content_type', 'metadata.language')) {
     $indexBody = @{ field_name = $field; field_schema = 'keyword' } | ConvertTo-Json
     try {
         Invoke-RestMethod -Method Put -Uri "$collectionUri/index?wait=true" -Headers $headers -ContentType 'application/json' -Body $indexBody | Out-Null
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -notin @(400, 409)) { throw }
     }
+}
+
+$textIndexBody = @{
+    field_name = 'text'
+    field_schema = @{ type = 'text'; tokenizer = 'word'; lowercase = $true }
+} | ConvertTo-Json -Depth 4
+try {
+    Invoke-RestMethod -Method Put -Uri "$collectionUri/index?wait=true" -Headers $headers -ContentType 'application/json' -Body $textIndexBody | Out-Null
+} catch {
+    if ($_.Exception.Response.StatusCode.value__ -notin @(400, 409)) { throw }
 }
 
 Write-Host "RAG schema and Qdrant collection '$collection' are ready."

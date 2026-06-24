@@ -95,6 +95,14 @@ services:
     environment:
       <<: *n8n-common-environment
       N8N_PORT: 5678
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      N8N_PROXY_HOPS: 1
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:8080/}
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL:-http://localhost:5678/}
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1"]
       interval: 15s
@@ -134,6 +142,9 @@ services:
       - no-new-privileges:true
     networks:
       - backend
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
 
   minio-init:
     image: minio/mc:${MINIO_MC_VERSION}
@@ -170,9 +181,12 @@ services:
       - no-new-privileges:true
     networks:
       - backend
+    ports:
+      - "127.0.0.1:${QDRANT_HTTP_PORT:-6333}:6333"
 
-  ollama:
+  ollama-cpu:
     image: ollama/ollama:${OLLAMA_VERSION}
+    profiles: ["cpu"]
     restart: unless-stopped
     environment:
       OLLAMA_NO_CLOUD: "true"
@@ -188,7 +202,42 @@ services:
     security_opt:
       - no-new-privileges:true
     networks:
-      - backend
+      backend:
+        aliases:
+          - ollama
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+
+  ollama-gpu:
+    image: ollama/ollama:${OLLAMA_VERSION}
+    profiles: ["gpu"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_NO_CLOUD: "true"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    mem_limit: ${OLLAMA_MEMORY_LIMIT:-5g}
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      backend:
+        aliases:
+          - ollama
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
 
   ollama-init:
     image: ollama/ollama:${OLLAMA_VERSION}
@@ -202,9 +251,6 @@ services:
       - /bin/sh
       - -c
       - ollama pull "$$OLLAMA_CHAT_MODEL" && ollama pull "$$OLLAMA_EMBEDDING_MODEL"
-    depends_on:
-      ollama:
-        condition: service_healthy
     networks:
       - backend
 
@@ -226,6 +272,8 @@ services:
       - no-new-privileges:true
     networks:
       - backend
+    ports:
+      - "127.0.0.1:${DOCLING_PORT:-5001}:5001"
 
   frontend:
     build:
@@ -248,6 +296,7 @@ services:
 
   caddy:
     image: caddy:${CADDY_VERSION}
+    profiles: ["local"]
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
@@ -262,6 +311,40 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    mem_limit: ${CADDY_MEMORY_LIMIT:-256m}
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:${CADDY_HTTP_PORT:-8080}:80"
+
+  caddy-production:
+    image: caddy:${CADDY_VERSION}
+    profiles: ["production"]
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      N8N_DOMAIN: ${N8N_DOMAIN}
+      TLS_EMAIL: ${TLS_EMAIL}
+    volumes:
+      - ./infra/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      n8n:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     healthcheck:
       test: ["CMD", "caddy", "version"]
       interval: 30s

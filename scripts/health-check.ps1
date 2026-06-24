@@ -13,8 +13,11 @@ Get-Content '.env' | Where-Object { $_ -match '^[A-Z0-9_]+=' } | ForEach-Object 
     $environment[$key] = $value
 }
 
-$compose = @('--env-file', '.env', '-f', 'docker-compose.yml', '-f', 'compose.dev.yml')
-$services = @('postgres', 'redis', 'minio', 'qdrant', 'ollama', 'docling', 'n8n', 'n8n-worker', 'frontend', 'caddy')
+$compose = @('--env-file', '.env', '-f', 'docker-compose.yml')
+$env:COMPOSE_PROFILES = if ($env:COMPOSE_PROFILES) { $env:COMPOSE_PROFILES } else { 'cpu,local' }
+$ollamaService = if (($env:COMPOSE_PROFILES -split ',') -contains 'gpu') { 'ollama-gpu' } else { 'ollama-cpu' }
+$gatewayService = if (($env:COMPOSE_PROFILES -split ',') -contains 'production') { 'caddy-production' } else { 'caddy' }
+$services = @('postgres', 'redis', 'minio', 'qdrant', $ollamaService, 'docling', 'n8n', 'n8n-worker', 'frontend', $gatewayService)
 
 foreach ($service in $services) {
     $containerId = docker compose @compose ps -q $service

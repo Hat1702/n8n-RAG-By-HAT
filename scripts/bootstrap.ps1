@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [switch]$CpuOnly,
+    [switch]$UseGpu,
     [switch]$SkipModelPull
 )
 
@@ -16,15 +16,17 @@ if (Select-String -LiteralPath '.env' -Pattern 'REPLACE_WITH_' -Quiet) {
     throw 'One or more secret placeholders remain in .env.'
 }
 
-$compose = @('--env-file', '.env', '-f', 'docker-compose.yml', '-f', 'compose.dev.yml')
-if (-not $CpuOnly) {
-    $compose += @('-f', 'compose.gpu.yml')
+$compose = @('--env-file', '.env', '-f', 'docker-compose.yml')
+if ($UseGpu) {
+    $env:COMPOSE_PROFILES = 'gpu,local'
+} elseif (-not $env:COMPOSE_PROFILES) {
+    $env:COMPOSE_PROFILES = 'cpu,local'
 }
 
 docker compose @compose config --quiet
 if ($LASTEXITCODE -ne 0) { throw 'Compose validation failed.' }
 
-docker compose @compose up -d
+docker compose @compose up -d --remove-orphans
 if ($LASTEXITCODE -ne 0) { throw 'Service startup failed.' }
 
 if (-not $SkipModelPull) {
@@ -33,4 +35,3 @@ if (-not $SkipModelPull) {
 }
 
 & "$PSScriptRoot/health-check.ps1"
-

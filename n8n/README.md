@@ -1,20 +1,17 @@
-# n8n Application Assets
+# n8n Assets
 
-This folder mirrors the current Phase 4 operating model:
+`workflows/local-rag-agent.json` is the only canonical workflow export. It contains the complete RAG orchestration on one canvas and preserves the `POST /webhook/rag` contract.
 
-- `workflows/` contains the active single-canvas RAG workflow export.
-- `schemas/` contains versioned request and response contracts.
-- `fixtures/` contains safe validation inputs.
+The workflow uses:
 
-The current production workflow is `workflows/phase4-single-canvas-local-rag.json`.
-It implements one `/webhook/rag` entrypoint for ingest, query, reset, and reprocess.
+- Docling HTTP conversion for structured JSON, Markdown, images, OCR, tables, formulas, code, classifications, and provenance.
+- Native Ollama Embeddings nodes for indexing and retrieval.
+- Native Qdrant Vector Store nodes with nested metadata filters.
+- A native Ollama Chat Model connected to an AI Agent.
+- A Vector Store Question Answer Tool for agent-controlled retrieval.
+- PostgreSQL for lifecycle and failure state.
+- MinIO for private sources and generated artifacts.
 
-Credentials and execution data must never be committed.
+`schemas/` contains the public request and response contracts. Credentials and execution data must never be committed.
 
-Use `scripts/export-workflows.*` for backup snapshots and `scripts/import-workflows.*` for
-version-controlled imports. Imports are inactive by default and must pass validation before
-publishing.
-
-Phase 4 uses the stable `/webhook/rag` contract, PostgreSQL lifecycle tables from
-`infra/postgres/migrations/`, private MinIO object keys, Docling ZIP artifacts, batched
-Ollama embeddings, and explicit Qdrant payloads.
+Repository imports are inactive by default. Workflow executions, smoke tests, uploads, model calls, and end-to-end tests require explicit user approval.

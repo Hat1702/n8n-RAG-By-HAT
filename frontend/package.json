@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@fontsource/dm-mono": "^5.2.7",
     "@fontsource/dm-sans": "5.2.6",
     "@fontsource/newsreader": "5.2.8",
     "vue": "3.5.17"
